@@ -276,6 +276,7 @@ def run_phase_retrieval(system_truth,
     #could use sorted here instead, psfs and sitances may mismatch unless order
     #is guaranteed by construction
 
+    #This needs to get passed ONLY numpy arrays, it checks the first element of psf_list and uses its shape to construct the starting guess
     psf_list = [system_truth] +[defocus_dictionary[key] for key in distance_list]
 
     dx_list= [seal_parameters['image_dx'] for key in distance_list]
