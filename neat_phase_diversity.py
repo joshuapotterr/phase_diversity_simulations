@@ -295,7 +295,7 @@ def run_phase_retrieval(system_truth_intensity,
     return psf_estimate, mp.cost_functions
 
 def calculate_phase_retrieval_accuracy(
-        system_truth, 
+        system_truth_phase, 
         psf_estimate, 
         cost_functions, 
         seal_parameters, 
@@ -349,7 +349,7 @@ def calculate_phase_retrieval_accuracy(
                                                    simulation_elements,
                                                    phase_unwrap_method)# Reconstruct phase from PSF
     
-    phase_estimate_metrics = check_phase_estimate(system_truth, 
+    phase_estimate_metrics = check_phase_estimate(system_truth_phase, 
                                                   phase_estimate,
                                                   simulation_elements['masking_pupil'])# Compare with truth
 
