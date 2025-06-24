@@ -277,8 +277,9 @@ def run_phase_retrieval(system_truth_intensity,
     #is guaranteed by construction
 
     #This needs to get passed ONLY numpy arrays, it checks the first element of psf_list and uses its shape to construct the starting guess
-    psf_list = [system_truth] +[defocus_dictionary[key] for key in distance_list]
-
+    psf_list = [system_truth_intensity] +[defocus_dictionary[key] for key in distance_list]
+    print('psf_list:',psf_list)
+    print('type of psf_list', type(psf_list))
     dx_list= [seal_parameters['image_dx'] for key in distance_list]
     #consider asserting, "assert all(isinstance(seal_parameters['image_dx'], (float, int)))
 
@@ -286,8 +287,7 @@ def run_phase_retrieval(system_truth_intensity,
                                    seal_parameters['wavelength_meter'], 
                                    dx_list, 
                                    distance_list)
-    print("Focused image shape:", wf_focused_intensity.shaped.shape)
-    print("Defocused image shape:", focal_intensity.shaped.shape)
+
     for i in range(num_iterations):
             psf_estimate = mp.step() 
     
