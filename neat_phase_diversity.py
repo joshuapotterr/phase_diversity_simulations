@@ -392,10 +392,11 @@ def simulate_focused_image(wf_error_to_retrieve,
     telescope_pupil=simulation_elements['telescope_pupil']
     wf_focused = Wavefront(telescope_pupil * np.exp(1j * wf_error_to_retrieve.flatten()), 
                    seal_parameters['wavelength_meter'])
+    wf_focused_intensity = wf_focused.intensity
     #assert simulation_elements['telescope_pupil'].shape == wf_error_to_retrieve.shape, \
     "Wavefront error and telescope pupil shape mismatch"
-
-    return wf_focused
+    #.intensity gives us our actual image, and .shaped formats it into an ndarray in order to pass to FDPR
+    return wf_focused_intensity.shaped
     
 
 def simulate_defocused_image(defocus_phase,
