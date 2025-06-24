@@ -458,8 +458,11 @@ def simulate_defocused_image(defocus_phase,
     aberrated_psf = prop2f(wavefront_defocused) # Propagate to focal plane, no dict
 
     focal_intensity = aberrated_psf.intensity
+    resize_256 = (seal_parameters['pupil_pixel_dimension'], seal_parameters['pupil_pixel_dimension'])
+    focal_intensity = resize(focal_intensity.shaped, resize_256)
+    print('focal_intensity shape is :', focal_intensity.shape)
 
-    return focal_intensity.shaped # Return intensity image, using shaped for the return as a proper array
+    return focal_intensity # Return intensity image, using shaped for the return as a proper array
 
 def calculate_defocus_phase(seal_parameters,
                             simulation_elements,
