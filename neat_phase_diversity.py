@@ -398,7 +398,7 @@ def simulate_focused_image(wf_error_to_retrieve,
     #assert simulation_elements['telescope_pupil'].shape == wf_error_to_retrieve.shape, \
     "Wavefront error and telescope pupil shape mismatch"
     #.intensity gives us our actual image, and .shaped formats it into an ndarray in order to pass to FDPR
-    return wf_focused_intensity.shaped, wf_focused_phase
+    return wf_focused_intensity.shaped, wf_focused_phase, wf_focused
     
 
 def simulate_defocused_image(defocus_phase,
@@ -629,7 +629,7 @@ def simulate_phase_diversity_grid(wf_error_to_retrieve,
     #would be origin, breaking step by step
     
     ##Step 1: simulate focused system truth, everything is getting passed from main
-    system_truth_intensity, system_truth_phase = simulate_focused_image(wf_error_to_retrieve,
+    system_truth_intensity, system_truth_phase, system_truth = simulate_focused_image(wf_error_to_retrieve,
                                           simulation_elements,
                                           wavelength) 
 
@@ -759,7 +759,7 @@ def main(seal_parameters,
     wf_error_to_retrieve = 0.75 * zernike_modes[zernike_index]
 
     # Simulate focused image using that known wavefront error
-    system_truth_intensity, system_truth_phase = simulate_focused_image(wf_error_to_retrieve,
+    system_truth_intensity, system_truth_phase, system_truth = simulate_focused_image(wf_error_to_retrieve,
                                           simulation_elements,
                                           wavelength)
     phase_diversity_grid= simulate_phase_diversity_grid(
