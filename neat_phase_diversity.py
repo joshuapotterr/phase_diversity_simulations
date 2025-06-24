@@ -161,7 +161,7 @@ def convert_psf_estimate_to_phase(psf_estimate, seal_parameters, telescope_pupil
 
     return pupil_phase
 
-def check_phase_estimate(system_truth, phase_estimate,masking_pupil):
+def check_phase_estimate(system_truth_phase, phase_estimate,masking_pupil):
     """
     Evaluate the accuracy of an estimated pupil phase map against the ground truth.
 
@@ -190,7 +190,7 @@ def check_phase_estimate(system_truth, phase_estimate,masking_pupil):
         - You may optionally consider subtracting the median from each phase before comparison
           to eliminate piston effects.
     """
-    true_phase = system_truth.phase.shaped # Get true phase
+    true_phase = system_truth_phase.shaped # Get true phase
     mask = np.array(masking_pupil.shaped, dtype =bool)# Apply mask to non-zero phase region
     #implement med_subtracted, ie passing the dictionary will help with this(pupil_phase - median blah blah)
     difference_true_vs_estimate = (true_phase - phase_estimate) #Compute difference
@@ -237,7 +237,7 @@ def make_cost_functions_plots(cost_functions, filename=None):
     #before starting new plot, use plt.clf to clear and it doesnt overlap
     plt.clf()
 
-def run_phase_retrieval(system_truth,
+def run_phase_retrieval(system_truth_intensity,
                         defocus_dictionary, 
                         seal_parameters,
                         num_iterations=200):
@@ -286,7 +286,8 @@ def run_phase_retrieval(system_truth,
                                    seal_parameters['wavelength_meter'], 
                                    dx_list, 
                                    distance_list)
-
+    print("Focused image shape:", wf_focused_intensity.shaped.shape)
+    print("Defocused image shape:", focal_intensity.shaped.shape)
     for i in range(num_iterations):
             psf_estimate = mp.step() 
     
@@ -393,10 +394,11 @@ def simulate_focused_image(wf_error_to_retrieve,
     wf_focused = Wavefront(telescope_pupil * np.exp(1j * wf_error_to_retrieve.flatten()), 
                    seal_parameters['wavelength_meter'])
     wf_focused_intensity = wf_focused.intensity
+    wf_focused_phase = wf_focused.phase
     #assert simulation_elements['telescope_pupil'].shape == wf_error_to_retrieve.shape, \
     "Wavefront error and telescope pupil shape mismatch"
     #.intensity gives us our actual image, and .shaped formats it into an ndarray in order to pass to FDPR
-    return wf_focused_intensity.shaped
+    return wf_focused_intensity.shaped, wf_focused_phase
     
 
 def simulate_defocused_image(defocus_phase,
@@ -624,7 +626,7 @@ def simulate_phase_diversity_grid(wf_error_to_retrieve,
     #would be origin, breaking step by step
     
     ##Step 1: simulate focused system truth, everything is getting passed from main
-    system_truth = simulate_focused_image(wf_error_to_retrieve,
+    system_truth_intensity, system_truth_phase = simulate_focused_image(wf_error_to_retrieve,
                                           simulation_elements,
                                           wavelength) 
 
@@ -653,13 +655,13 @@ def simulate_phase_diversity_grid(wf_error_to_retrieve,
         print("TYPE OF defocus_dictionary:", type(defocus_dictionary))
         print("KEYS:", defocus_dictionary.keys() if hasattr(defocus_dictionary, 'keys') else 'not a dict')
 
-        psf_estimate, cost_functions = focus_diverse_phase_retrieval(system_truth, 
+        psf_estimate, cost_functions = focus_diverse_phase_retrieval(system_truth_intensity, 
                                                                      defocus_dictionary,
                                                                      wf_error_to_retrieve, 
                                                                      seal_parameters, 
                                                                      simulation_elements)
         
-        metrics = calculate_phase_retrieval_accuracy(system_truth, 
+        metrics = calculate_phase_retrieval_accuracy(system_truth_phase, 
                                                      psf_estimate, 
                                                      cost_functions, 
                                                      seal_parameters,
@@ -754,7 +756,7 @@ def main(seal_parameters,
     wf_error_to_retrieve = 0.75 * zernike_modes[zernike_index]
 
     # Simulate focused image using that known wavefront error
-    system_truth = simulate_focused_image(wf_error_to_retrieve,
+    system_truth_intensity, system_truth_phase = simulate_focused_image(wf_error_to_retrieve,
                                           simulation_elements,
                                           wavelength)
     phase_diversity_grid= simulate_phase_diversity_grid(
