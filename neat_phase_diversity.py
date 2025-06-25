@@ -706,10 +706,7 @@ def plot_phase_diversity_heat_map(phase_diversity_grid,
     plt.clf()
 
     plt.imshow(phase_diversity_grid)
-    
-    if x_wise is not None and y_wise is not None:
-        plt.xticks(ticks=np.arange(len(x_wise)), labels=[f"{v:.1f}" for v in x_wise])
-        plt.yticks(ticks=np.arange(len(y_wise)), labels=[f"{v:.1f}" for v in y_wise])
+
 
     plt.colorbar(label='RMS Error')
 
