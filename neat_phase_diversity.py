@@ -346,7 +346,7 @@ def calculate_phase_retrieval_accuracy(
 
     phase_estimate = convert_psf_estimate_to_phase(psf_estimate, 
                                                    seal_parameters,
-                                                   simulation_elements,
+                                                   simulation_elements['telescope_pupil'],
                                                    phase_unwrap_method)# Reconstruct phase from PSF
     
     phase_estimate_metrics = check_phase_estimate(system_truth_phase, 
@@ -674,6 +674,8 @@ def simulate_phase_diversity_grid(wf_error_to_retrieve,
         #results.append(metrics)
         #indices is first half of tuple
         indices = simulation_specifics[:n_info]
+        #need to add index checks and make sure indices are within bounds
+        
         phase_diversity_grid[indices] = metrics['rms_error']
 
     np.save(file_name_out, phase_diversity_grid) #will assign name when function runs
@@ -786,7 +788,7 @@ if __name__ == "__main__":
     #Define Variables
     seal_parameters = {
         'image_dx': 2.0071, # 
-        'efl_mm': 500, # SEAL effective focal length, mm
+        'efl': 500, # SEAL effective focal length, mm
         'wavelength_micron': 0.65, # SEAL center wavelength, microns- >prysm
         'wavelength_meter': 650e-9,#SEAL center wavelength, meters -> hcipy
         'pupil_size': 10.12e-3, # Keck entrance pupil diameter
@@ -797,6 +799,7 @@ if __name__ == "__main__":
         'Num_airycircles': 16,
         'grid_dim': 11
          }
+    seal_parameters['wavelength']=seal_parameters['wavelength_meter']
     #some list of defocus distances 
     f = seal_parameters['focal_length_meters']
     D = seal_parameters['pupil_size']
