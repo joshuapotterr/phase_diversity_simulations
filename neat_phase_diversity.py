@@ -640,23 +640,7 @@ def simulate_phase_diversity_grid(wf_error_to_retrieve,
 
     ##Step 3: loop through each focus input
     #simulation_specfics would be one of the tuples in phase dverse info
-    for simulation_specifics in phase_diverse_inputs:
-        n_info = int((len(simulation_specifics))/2)
-        #indices first half
-        #defocus_distance is second half
-        
-    #for index_x in phase_diverse_inputs.shape[0]:
-        defocus_dictionary= {}
-        #this takes second two information in tuple of simualtion_specifics
-        defocus_distances = simulation_specifics[n_info:]
-        for defocus_distance in defocus_distances:
-
-            defocus_phase = calculate_defocus_phase(seal_parameters,
-                                                    simulation_elements,
-                                                    defocus_distance)
-            defocus_dictionary[defocus_distance] = defocus_phase
-        print("TYPE OF defocus_dictionary:", type(defocus_dictionary))
-        print("KEYS:", defocus_dictionary.keys() if hasattr(defocus_dictionary, 'keys') else 'not a dict')
+    for index_x,index_y, defocus_dictionary in phase_diverse_inputs:
 
         psf_estimate, cost_functions = focus_diverse_phase_retrieval(system_truth_intensity, 
                                                                      defocus_dictionary,
@@ -673,10 +657,10 @@ def simulate_phase_diversity_grid(wf_error_to_retrieve,
                                                      verbose =True)
         #results.append(metrics)
         #indices is first half of tuple
-        indices = simulation_specifics[:n_info]
+
         #need to add index checks and make sure indices are within bounds
         
-        phase_diversity_grid[indices] = metrics['rms_error']
+        phase_diversity_grid[index_x, index_y] = metrics['rms_error']
 
     np.save(file_name_out, phase_diversity_grid) #will assign name when function runs
 
@@ -823,7 +807,13 @@ if __name__ == "__main__":
         match_x = x_wise_m[index_x] 
         match_y = y_wise_m[index_y] 
         #List of tuples
-        phase_diverse_inputs.append((index_x, index_y, match_x, match_y)) 
+        # Convert defocus distances to phase maps
+        defocus_dict = {
+            match_x: calculate_defocus_phase(seal_parameters, simulation_elements, match_x),
+            match_y: calculate_defocus_phase(seal_parameters, simulation_elements, match_y)
+        }
+        phase_diverse_inputs.append((index_x, index_y, defocus_dict))
+     
 
     
 
