@@ -558,6 +558,7 @@ def focus_diverse_phase_retrieval(system_truth,
 
     defocus_distances = phase_diverse_information.keys()
     #change to allow mulitple inptus
+    defocus_psfs={}
     for defocus_distance in defocus_distances:
 
         defocus_phase = phase_diverse_information[defocus_distance]
@@ -570,7 +571,7 @@ def focus_diverse_phase_retrieval(system_truth,
             simulation_elements
         )
         #put into disctionary keyed by defocus distance
-        defocus_psfs= {defocus_distance: defocused_psf}
+        defocus_psfs[defocus_distance]=defocused_psf
 
         #run it
         psf_estimate, cost_functions = run_phase_retrieval(
