@@ -797,7 +797,7 @@ if __name__ == "__main__":
         'focal_length_meters': 500e-3,
         'q': 16,
         'Num_airycircles': 16,
-        'grid_dim': 11
+        'grid_dim': 100
          }
     seal_parameters['wavelength']=seal_parameters['wavelength_meter']
     #some list of defocus distances 
@@ -835,15 +835,4 @@ main(seal_parameters,
      file_name_out ='example_file_name.npy',
      heatmap_plot_out= 'example_heatmap.png')
 
-'''
-phase_diverse_inputs need to looks like [(index_x,index_y, {'7mm': array of defocus})...]
 
-
-phase_diverse_inputs=[]
-for big_tuple in defocus_grid:  
-    defocus_distance = big_tuple[2]
-    actual deofus phase = calculate_defocus(defocus_distance)
-    phase_diverse_inputs.append((big_tuple[0],big_tuple[1], {defocus_distance:actual defocus }))
-
-
-'''
