@@ -704,6 +704,10 @@ def plot_phase_diversity_heat_map(phase_diversity_grid,
     plt.clf()
 
     plt.imshow(phase_diversity_grid)
+    
+    if x_wise is not None and y_wise is not None:
+        plt.xticks(ticks=np.arange(len(x_wise)), labels=[f"{v:.1f}" for v in x_wise])
+        plt.yticks(ticks=np.arange(len(y_wise)), labels=[f"{v:.1f}" for v in y_wise])
 
     plt.colorbar(label='RMS Error')
 
@@ -803,6 +807,8 @@ if __name__ == "__main__":
     #1D defocus pace in mm, 
     x_wise = np.linspace(-10,10, dim)
     y_wise = np.linspace(-10,10, dim)
+    x_wise_m = x_wise /1000
+    y_wise_m = y_wise /1000
 
     #unique (i,j) index pairs, upper triangle to avoid mirror
     upper_triangle = np.triu_indices(dim, 1)
@@ -814,8 +820,8 @@ if __name__ == "__main__":
     for upper_triangle_indices in upper_triangle: 
         index_x = upper_triangle_indices[0] 
         index_y = upper_triangle_indices[1] 
-        match_x = x_wise[index_x] 
-        match_y = y_wise[index_y] 
+        match_x = x_wise_m[index_x] 
+        match_y = y_wise_m[index_y] 
         #List of tuples
         phase_diverse_inputs.append((index_x, index_y, match_x, match_y)) 
 
