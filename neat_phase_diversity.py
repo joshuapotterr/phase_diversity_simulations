@@ -682,6 +682,11 @@ def simulate_phase_diversity_grid(wf_error_to_retrieve,
         indices = simulation_specifics[:n_info]
         defocus_distances = simulation_specifics[n_info:]
         #indices first half
+        '''    
+        index_x, index_y, defocus_dict = simulation_specifics
+        indices = (index_x, index_y)
+        defocus_distances = defocus_dict.keys()
+        '''
         #defocus_distance is second half
         
     #for index_x in phase_diverse_inputs.shape[0]:
