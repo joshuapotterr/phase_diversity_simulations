@@ -284,7 +284,7 @@ def run_phase_retrieval(system_truth_intensity,
     #consider asserting, "assert all(isinstance(seal_parameters['image_dx'], (float, int)))
 
     mp= FocusDiversePhaseRetrieval(psf_list,
-                                   seal_parameters['wavelength_meter'], 
+                                   seal_parameters['wavelength_meter'], #JARENS NOT IN METER
                                    dx_list, 
                                    distance_list)
 
