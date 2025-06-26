@@ -133,7 +133,8 @@ def convert_psf_estimate_to_phase(psf_estimate, seal_parameters, telescope_pupil
                 - callable: Any user-defined unwrapping function that accepts a 2D array.
 
     Returns:
-        ndarray: 2D unwrapped and pupil-masked phase map of the retrieved pupil field (in radians).
+        pupil_phase : ndarray
+        2D array of the unwrapped and pupil-masked phase map of the retrieved pupil field (in radians).
 
     Notes:
         - The MFT is computed using `mft_rev()` as defined in the imaging pipeline.
@@ -165,30 +166,38 @@ def check_phase_estimate(system_truth_phase, phase_estimate,masking_pupil):
     """
     Evaluate the accuracy of an estimated pupil phase map against the ground truth.
 
-    This function compares the estimated phase to the known system truth phase by computing
-    pixel-wise differences over the region defined by a masking pupil. It returns standard
-    error metrics like RMS (root-mean-square) and P2V (peak-to-valley), as well as 
-    difference images for diagnostics.
+    This function compares the estimated phase map to the known system truth phase
+    by computing pixel-wise differences within the region defined by a pupil mask.
+    It returns error metrics such as RMS (root-mean-square) error and peak-to-valley (P2V) error,
+    as well as diagnostic difference images.
 
-    Parameters:
-        system_truth (Wavefront): HCIPy Wavefront object containing the true phase 
-            in its `.phase` attribute.
-        phase_estimate (ndarray): 2D array representing the estimated pupil phase (in radians).
-        masking_pupil (Field or ndarray): Binary mask defining the region of interest
-            for error evaluation. Pixels outside this mask are excluded from RMS.
+    Parameters
+    ----------
+    system_truth_phase : Wavefront
+        HCIPy Wavefront object containing the true phase in its `.phase` attribute.
+    phase_estimate : ndarray
+        2D array representing the estimated pupil phase (in radians).
+    masking_pupil : Field or ndarray
+        Binary mask defining the region of interest for error evaluation; pixels outside this mask are excluded from RMS.
 
-    Returns:
-        dict: Dictionary containing:
-            - 'rms_error' (float): Root-mean-square error between truth and estimate (masked).
-            - 'p2v_error' (float): Peak-to-valley error over the full difference image.
-            - 'difference_image' (ndarray): Masked phase difference values (truth - estimate).
-            - 'difference_true_vs_estimate' (ndarray): Full, unmasked phase difference map.
+    Returns
+    -------
+    dict
+        Dictionary with the following keys:
+            - 'rms_error' : float
+                Root-mean-square error between truth and estimate (masked).
+            - 'p2v_error' : float
+                Peak-to-valley error over the full difference image.
+            - 'difference_image' : ndarray
+                Masked phase difference values (truth - estimate).
+            - 'difference_true_vs_estimate' : ndarray
+                Full, unmasked phase difference map.
 
-    Notes:
-        - The mask ensures that RMS is only computed inside the clear pupil aperture.
-        - P2V is calculated on the full unmasked difference, which may include edge artifacts.
-        - You may optionally consider subtracting the median from each phase before comparison
-          to eliminate piston effects.
+    Notes
+    -----
+    - The mask ensures that the RMS error is computed only within the clear pupil region.
+    - P2V is calculated on the unmasked difference (may include edge effects).
+    - Optionally, the median can be subtracted from each phase map before comparison to remove piston terms.
     """
     true_phase = system_truth_phase.shaped # Get true phase
     mask = np.array(masking_pupil.shaped, dtype =bool)# Apply mask to non-zero phase region
@@ -242,34 +251,35 @@ def run_phase_retrieval(system_truth_intensity,
                         seal_parameters,
                         num_iterations=200):
     """
-        Run the iterative phase retrieval algorithm using focus-diverse PSFs.
+    Perform iterative phase retrieval using focus-diverse PSFs.
 
-    This function initializes and executes the phase retrieval process based on a set of 
-    defocused PSFs and the system's true focused PSF. It uses the FocusDiversePhaseRetrieval 
-    class to estimate the pupil phase that best reproduces the observed intensity patterns.
+    Runs the phase retrieval algorithm by combining a focused PSF with a set of defocused PSFs. 
+    The algorithm estimates the pupil phase that best explains the observed intensity distribution, 
+    using the FocusDiversePhaseRetrieval class and tracking the convergence of the cost function.
 
-    Parameters:
-        system_truth (ndarray):
-            The focused PSF (no defocus), used as the reference for reconstruction.
-        defocus_dictionary (dict):
-            Dictionary mapping each defocus distance (float, in meters) to its corresponding defocused PSF (ndarray).
-        seal_parameters (dict):
-            Dictionary containing SEAL optical system configuration. Must include:
-                - 'image_dx': Pixel size in the image plane (float)
-                - 'wavelength': Central wavelength used in the simulation (float)
-        num_iterations (int, optional):
-            Number of optimization iterations to run. Default is 200.
+    Parameters
+    ----------
+    system_truth_intensity : ndarray
+        Focused (zero-defocus) PSF used as the reference for phase retrieval.
+    defocus_dictionary : dict
+        Mapping from defocus distance (float, in meters) to defocused PSF (ndarray).
+    seal_parameters : dict
+        Dictionary of SEAL optical system parameters. Must include 'image_dx' and 'wavelength_meter'.
+    num_iterations : int, optional
+        Number of optimization iterations to run (default is 200).
 
-    Returns:
-        tuple:
-            - psf_estimate (ndarray): Estimated complex PSF after phase retrieval.
-            - cost_functions (list of list of float): Convergence history of the cost function for each defocus input.
+    Returns
+    -------
+    psf_estimate : ndarray
+        Estimated complex PSF after phase retrieval.
+    cost_functions : list of list of float
+        Convergence history of the cost function for each defocus input.
 
-    Notes:
-        - The `FocusDiversePhaseRetrieval` object is assumed to implement a `.step()` method 
-          that updates the phase estimate and stores cost history.
-        - Defocus PSFs are assumed to be aligned with the `distance_list`.
-        - The focused PSF is prepended to the list of PSFs as the reference.
+    Notes
+    -----
+    - The FocusDiversePhaseRetrieval class must implement a .step() method for phase update and cost tracking.
+    - The focused PSF is prepended to the list of PSFs as a reference.
+    - The returned cost_functions can be used to assess convergence.
     """
 
     distance_list = list(defocus_dictionary.keys()) 
@@ -284,12 +294,19 @@ def run_phase_retrieval(system_truth_intensity,
     #consider asserting, "assert all(isinstance(seal_parameters['image_dx'], (float, int)))
 
     mp= FocusDiversePhaseRetrieval(psf_list,
-                                   seal_parameters['wavelength_meter'], #JARENS NOT IN METER
+                                   seal_parameters['wavelength_micron'], #JARENS NOT IN METER
                                    dx_list, 
                                    distance_list)
 
     for i in range(num_iterations):
-            psf_estimate = mp.step() 
+            psf_estimate = mp.step() ##does this for loop overwrite psf_estimate each time
+    '''
+    all_estimates = []
+    for i in range(num_iterations):
+        psf_estimate = mp.step()
+        all_estimates.append(psf_estimate)
+    return all_estimates, mp.cost_functions
+    '''
     
 
     return psf_estimate, mp.cost_functions
@@ -304,44 +321,53 @@ def calculate_phase_retrieval_accuracy(
         verbose = False
         ):
     """
-    Evaluate the accuracy of phase retrieval by comparing estimated and true wavefront phases.
+    Evaluate the accuracy of phase retrieval by comparing estimated and ground truth pupil phases.
 
-    This function reconstructs the pupil phase from the retrieved PSF, compares it to the ground 
-    truth phase, and computes error metrics such as RMS and peak-to-valley (P2V) error. 
-    Optionally, it can also plot the cost function convergence history.
+    This function reconstructs the pupil phase from the retrieved PSF, compares it to the ground truth phase,
+    and computes error metrics such as RMS and peak-to-valley (P2V) error. Optionally, it can also plot the 
+    cost function convergence history for diagnostic purposes.
 
-    Parameters:
-        system_truth (Wavefront):
-            The known wavefront used as the ground truth for comparison.
-        psf_estimate (ndarray):
-            The estimated PSF obtained from the retrieval algorithm.
-        cost_functions (list of list of float):
-            Convergence history of the cost function across iterations and defocus inputs.
-        seal_parameters (dict):
-            Dictionary of SEAL system configuration parameters, including pupil size, image resolution, etc.
-        simulation_elements (dict):
-            Dictionary of precomputed simulation elements, including:
-                - 'masking_pupil': Boolean mask to isolate the pupil region
-                - other components needed by downstream functions
-        phase_unwrap_method (str, optional):
-            String identifier for the unwrapping method to use. Options:
-                - "phase_unwrap_2d"
-                - "unwrap_phase"
-                Default is None (no unwrapping).
-        verbose (bool, optional):
-            If True, plots the cost function history using `make_cost_functions_plots`.
+    Parameters
+    ----------
+    system_truth_phase : Wavefront
+        The known wavefront used as the ground truth for comparison.
+    psf_estimate : ndarray
+        The estimated PSF obtained from the phase retrieval algorithm.
+    cost_functions : list of list of float
+        Convergence history of the cost function across iterations and defocus inputs.
+    seal_parameters : dict
+        Dictionary of SEAL system configuration parameters (e.g., pupil size, image resolution).
+    simulation_elements : dict
+        Dictionary of precomputed simulation elements, including:
+            - 'masking_pupil' : mask for error computation
+            - 'telescope_pupil' : mask for phase reconstruction
+    phase_unwrap_method : str or callable, optional
+        Phase unwrapping method to use. Options:
+            - "phase_unwrap_2d"
+            - "unwrap_phase"
+            - callable (user-defined)
+            Default is None (no unwrapping).
+    verbose : bool, optional
+        If True, plots the cost function convergence history.
 
-    Returns:
-        dict:
-            Dictionary containing accuracy metrics:
-                - 'rms_error': Root-mean-square phase difference over the pupil
-                - 'p2v_error': Peak-to-valley phase difference
-                - 'difference_image': Masked residual phase map
-                - 'difference_true_vs_estimate': Full residual phase map (unmasked)
+    Returns
+    -------
+    dict
+        Dictionary containing:
+            - 'rms_error' : float
+                Root-mean-square phase difference over the pupil.
+            - 'p2v_error' : float
+                Peak-to-valley phase difference.
+            - 'difference_image' : ndarray
+                Masked residual phase map.
+            - 'difference_true_vs_estimate' : ndarray
+                Full residual phase map (unmasked).
 
-    Notes:
-        - Assumes the phase unwrapping method corresponds to a callable function if specified.
-        - Internally calls `convert_psf_estimate_to_phase()` and `check_phase_estimate()`.
+    Notes
+    -----
+    - Internally calls convert_psf_estimate_to_phase() and check_phase_estimate().
+    - The phase unwrapping method must correspond to a callable if specified.
+    - Cost function history is only plotted if verbose=True.
     """
 
     phase_estimate = convert_psf_estimate_to_phase(psf_estimate, 
@@ -365,30 +391,35 @@ def simulate_focused_image(wf_error_to_retrieve,
                           simulation_elements, 
                           wavelength):
     """
-    Simulate a focused wavefront image using a known wavefront error.
+    Simulate a focused wavefront image using a specified phase error.
 
-    This function generates a complex-valued wavefront by applying the provided
-    phase error to the SEAL telescope pupil and returns the corresponding wavefront
-    object. This wavefront represents the focused optical field at the pupil plane.
+    Generates a complex-valued wavefront by applying the provided phase error to the telescope pupil mask,
+    and returns the resulting focused intensity image, phase, and full wavefront object.
 
-    Parameters:
-        wf_error_to_retrieve (ndarray):
-            Phase error to inject into the wavefront (in radians). Should match the
-            shape of the telescope pupil grid or be flattenable to match it.
-        simulation_elements (dict):
-            Dictionary containing precomputed simulation components. Must include:
-                - 'telescope_pupil' (ndarray): Circular pupil aperture mask.
-        wavelength (float):
-            Wavelength of the simulated light in meters.
+    Parameters
+    ----------
+    wf_error_to_retrieve : ndarray
+        Phase error to apply to the wavefront (in radians). Should be broadcastable to the pupil shape.
+    simulation_elements : dict
+        Dictionary containing precomputed simulation components, must include:
+            - 'telescope_pupil' : ndarray
+                Circular pupil aperture mask.
+    wavelength : float
+        Wavelength of the simulated light, in meters.
 
-    Returns:
-        Wavefront:
-            Complex-valued wavefront object defined on the pupil with the applied phase error.
+    Returns
+    -------
+    wf_focused_intensity : ndarray
+        2D array representing the intensity distribution of the focused wavefront.
+    wf_focused_phase : ndarray
+        2D array of the phase map of the focused wavefront.
+    wf_focused : Wavefront
+        The complex-valued wavefront object after applying the phase error.
 
-    Notes:
-        - The input phase array is flattened to match the expected format for constructing
-          the `Wavefront` object.
-        - Assumes the pupil shape is compatible with the input phase shape.
+    Notes
+    -----
+    - The input phase error is flattened to match the expected format for constructing the Wavefront.
+    - Returned intensity is shaped to match the pupil grid and can be used in downstream phase retrieval.
     """
     telescope_pupil=simulation_elements['telescope_pupil']
     wf_focused = Wavefront(telescope_pupil * np.exp(1j * wf_error_to_retrieve.flatten()), 
@@ -407,40 +438,45 @@ def simulate_defocused_image(defocus_phase,
                              simulation_elements,
                              ):#instead of defocus_phase pass wf,test_abberattion
     """
-    Simulate a defocused PSF image by propagating a wavefront with combined aberrations.
+    Simulate a defocused point spread function (PSF) by propagating a wavefront with combined aberrations.
 
-    This function generates a defocused optical field by combining a known aberration 
-    (e.g., Zernike or Fourier phase error) with a defocus phase term, then propagates 
-    the resulting wavefront to the focal plane using Fraunhofer diffraction. The output 
-    is the resulting intensity distribution in the focal plane.
+    This function combines a specified phase error and a defocus phase map, applies them to the telescope pupil,
+    and simulates propagation to the focal plane using Fraunhofer diffraction. The resulting PSF intensity 
+    image is returned, resized to match the pupil grid.
 
-    Parameters:
-        defocus_phase (ndarray):
-            Phase array representing the defocus aberration (in radians), same shape as aperture.
-        wf_error_to_retrieve (ndarray):
-            Wavefront phase error to retrieve (in radians), same shape as aperture.
-        seal_parameters (dict):
-            Dictionary of SEAL system configuration parameters; must contain:
-                - 'focal_length_meters' (float): Effective focal length in meters.
-        wavelength (float):
-            Simulation wavelength in meters.
-        simulation_elements (dict):
-            Dictionary containing optical components including:
-                - 'aperture' (ndarray): Pupil function (e.g., circular aperture mask).
-                - 'pupil_grid' (Grid): Grid over which pupil is defined.
-                - 'focal_grid' (Grid): Grid over which focal plane PSF is computed.
+    Parameters
+    ----------
+    defocus_phase : ndarray
+        2D array representing the defocus aberration (in radians); must match the pupil shape.
+    wf_error_to_retrieve : ndarray
+        2D array of static wavefront phase error to retrieve (in radians); must match the pupil shape.
+    seal_parameters : dict
+        Dictionary of SEAL system configuration, must include:
+            - 'focal_length_meters' : float
+                Effective focal length, in meters.
+            - 'pupil_pixel_dimension' : int
+                Output grid size for resizing.
+            - 'wavelength_meter' : float
+                Wavelength, in meters.
+    simulation_elements : dict
+        Dictionary containing optical components, including:
+            - 'telescope_pupil' : ndarray
+                Pupil mask.
+            - 'pupil_grid' : PupilGrid
+                Grid over which the pupil mask is defined.
+            - 'focal_grid' : FocalGrid
+                Grid over which the focal plane PSF is computed.
 
-    Returns:
-        ndarray:
-            2D focal intensity image of the defocused PSF (same shape as focal grid).
-    
-    Raises:
-        AssertionError:
-            If the shapes of the aberration and aperture arrays do not match.
+    Returns
+    -------
+    focal_intensity : ndarray
+        2D array representing the intensity of the simulated defocused PSF, resized to match the pupil grid.
 
-    Notes:
-        - Uses the Fraunhofer propagator for far-field propagation.
-        - The returned image is the `.shaped` intensity of the propagated wavefront.
+    Notes
+    -----
+    - The wavefront is constructed as the product of the pupil mask and a complex exponential of the combined phase errors.
+    - Fraunhofer propagation is performed using the provided pupil and focal grids.
+    - The output intensity is shaped and resized to the pupil grid dimensions for consistency.
     """
     #Use dictionary again
     
@@ -468,33 +504,34 @@ def calculate_defocus_phase(seal_parameters,
                             simulation_elements,
                             defocus_distance):
     """
-    Convert a physical defocus distance into a Zernike-based defocus phase map.
+    Generate a pupil-plane defocus phase map for a given physical defocus distance.
 
-    This function uses the normalized Zernike defocus mode (Zernike index 3) as a template 
-    and scales it to match a specified physical defocus distance. The result is a phase 
-    aberration map corresponding to the defocus term in radians.
+    This function constructs a defocus phase aberration (in radians) by scaling the normalized
+    Zernike defocus mode (Zernike index 3) to match the specified physical defocus distance.
+    The scaling factor is determined using the optical configuration and the delta_to_p formula.
 
-    Parameters:
-        seal_parameters (dict):
-            Dictionary containing optical configuration parameters, must include:
-                - 'focal_length_meters' (float): Effective focal length of the system [m].
-                - 'pupil_size' (float): Diameter of the pupil [m].
+    Parameters
+    ----------
+    seal_parameters : dict
+        Optical system parameters. Must include:
+            - 'focal_length_meters' (float): System focal length in meters.
+            - 'pupil_size' (float): Pupil diameter in meters.
+    simulation_elements : dict
+        Simulation resources. Must include:
+            - 'zernike_sample_12' (list of ndarray): The first 12 shaped Zernike modes.
+    defocus_distance : float
+        Physical defocus distance in meters (can be positive or negative).
 
-        simulation_elements (dict):
-            Dictionary of simulation components. Must include:
-                - 'zernike_sample_12' (list of 2D arrays): List of the first 12 Zernike modes (shaped).
+    Returns
+    -------
+    defocus_phase : ndarray
+        2D array (same shape as the pupil) representing the defocus phase aberration in radians.
 
-        defocus_distance (float):
-            Physical defocus offset in meters (positive or negative).
-
-    Returns:
-        ndarray:
-            A 2D array representing the defocus phase map in radians, scaled to match the
-            specified physical defocus distance.
-
-    Notes:
-        - The Zernike mode used is hardcoded as index 3 (defocus term).
-        - Phase scaling is done based on the peak-to-valley of the Zernike template.
+    Notes
+    -----
+    - The Zernike mode used is always index 3, corresponding to defocus.
+    - The phase scaling uses the peak-to-valley (P2V) value of both the template and the target defocus.
+    - This function requires delta_to_p to convert physical defocus to phase P2V.
     """
 
     defocus_template =simulation_elements['zernike_sample_12'][3]
@@ -519,38 +556,37 @@ def focus_diverse_phase_retrieval(system_truth,
                                   simulation_elements):
 
     """
-    Run a single phase retrieval estimation using a focused and one defocused PSF.
+    Perform phase retrieval using a focused PSF and one or more defocused PSFs.
 
-    This function extracts the defocus phase term from a single entry in the 
-    phase-diverse input list, simulates the corresponding defocused PSF, and 
-    performs phase retrieval by comparing it with the focused "truth" PSF.
+    This function simulates defocused point spread functions (PSFs) for a set of specified defocus distances,
+    then runs a phase retrieval algorithm using both the focused (ground truth) PSF and the simulated defocused PSFs.
+    The goal is to estimate the pupil phase that best explains the observed intensity distributions.
 
-    Parameters:
-        system_truth (Wavefront):
-            Focused wavefront representing the ground truth PSF (complex field).
+    Parameters
+    ----------
+    system_truth : Wavefront 
+        The focused (zero-defocus) point spread function, representing the ground truth.
+    phase_diverse_information : dict
+        Dictionary mapping each defocus distance (float, meters) to its corresponding defocus phase map (2D ndarray, radians).
+    wf_error_to_retrieve : ndarray
+        The static wavefront phase error map to be retrieved (2D array, radians).
+    seal_parameters : dict
+        Dictionary of optical and simulation parameters (e.g., focal length, pupil size).
+    simulation_elements : dict
+        Dictionary containing simulation resources such as aperture masks, grids, and Zernike modes.
 
-        wavelength (float):
-            Wavelength in meters at which the PSFs are simulated.
+    Returns
+    -------
+    psf_estimate : ndarray
+        The estimated complex PSF after phase retrieval.
+    cost_functions : list
+        List tracking the cost function (error metric) over optimization iterations.
 
-        phase_diverse_information (tuple):
-            A tuple of the form ((i, j), {defocus_distance: defocus_phase}), where:
-                - (i, j): Grid index (used externally to track config).
-                - {defocus_distance: defocus_phase}: Mapping of defocus value [m] 
-                  to the corresponding phase map [radians].
-
-        wf_error_to_retrieve (ndarray):
-            The static wavefront error map to retrieve, in radians.
-
-        seal_parameters (dict):
-            Dictionary of optical configuration parameters for SEAL system.
-
-        simulation_elements (dict):
-            Dictionary of precomputed simulation components (aperture, grids, Zernike modes, etc.).
-
-    Returns:
-        tuple:
-            - psf_estimate (ndarray): Final PSF estimate after phase retrieval.
-            - cost_functions (list): History of cost function values during iterations.
+    Notes
+    -----
+    - For each defocus distance, a defocused PSF is simulated using the provided phase map and wavefront error.
+    - All PSFs (focused and defocused) are then provided to the phase retrieval algorithm.
+    - The cost_functions output can be used to assess convergence or algorithm performance.
     """
 
     print("TYPE OF phase_diverse_information:", type(phase_diverse_information))
@@ -593,38 +629,38 @@ def simulate_phase_diversity_grid(wf_error_to_retrieve,
                                   simulation_elements, 
                                   wavelength):
     """
-    Simulate a 2D grid of phase diversity configurations and compute phase retrieval accuracy (RMS error)
-    for each combination of defocus inputs.
+    Simulate phase diversity experiments across a grid of defocus configurations and evaluate phase retrieval accuracy.
 
-    This function simulates one "focused" wavefront (`system_truth`) using the provided wavefront error,
-    then loops over a 2D grid of phase-diverse input tuples—each containing defocus distances and associated
-    grid indices—and runs a single phase retrieval using each defocus configuration. The result is a heatmap
-    (2D array) of RMS error values for each simulation indexed by (i, j).
+    This function iterates over a 2D grid of phase diversity input configurations, simulating the corresponding focused and defocused
+    point spread functions (PSFs), performing phase retrieval for each configuration, and calculating the accuracy (e.g., RMS error)
+    of the retrieved phase compared to the known ground truth.
 
-    Parameters:
-        wf_error_to_retrieve (ndarray):
-            Static wavefront error map to retrieve (in radians).
+    Parameters
+    ----------
+    wf_error_to_retrieve : ndarray
+        The static wavefront phase error map to be retrieved, in radians.
+    phase_diverse_inputs : list or array-like
+        A 2D grid (list of lists, or similar) where each entry contains a tuple: (indices..., defocus_distances...),
+        with the first half being grid indices and the second half being defocus distances (float, meters).
+    seal_parameters : dict
+        Dictionary of optical and simulation parameters (e.g., focal length, pupil size, pixel dimensions).
+    file_name_out : str
+        Path or filename for saving the simulation results.
+    simulation_elements : dict
+        Dictionary containing simulation resources such as aperture masks, grids, and Zernike modes.
+    wavelength : float
+        Wavelength of the simulated light (in meters).
 
-        phase_diverse_inputs (list of tuples):
-            Each element is a tuple of the form:
-                ((i, j), {defocus_distance_1: defocus_phase_1, defocus_distance_2: defocus_phase_2, ...})
-            where (i, j) are 2D grid indices, and the dictionary maps defocus distances [m] to phase maps [rad].
+    Returns
+    -------
+    phase_diversity_grid : ndarray
+        2D array of RMS phase retrieval errors for each grid point.
 
-        seal_parameters (dict):
-            Dictionary containing SEAL system parameters (grids, wavelength, focal length, etc.).
-
-        file_name_out (str):
-            File path to save the resulting RMS error heatmap as a NumPy `.npy` file.
-
-        simulation_elements (dict):
-            Dictionary of precomputed simulation components (grids, apertures, modal bases, etc.).
-
-        wavelength (float):
-            Wavelength [meters] at which PSFs are simulated.
-
-    Returns:
-        phase_diversity_grid (ndarray):
-            A 2D array (shape defined by `seal_parameters['grid_dim']`) of RMS phase retrieval errors.
+    Notes
+    -----
+    - For each grid point, the function simulates a focused PSF and one or more defocused PSFs using the supplied aberrations.
+    - Phase retrieval is performed for each configuration, and the accuracy is evaluated (e.g., by comparing RMS error).
+    - The resulting phase_diversity_grid is saved to file_name_out and also returned.
     """
 
     #would be origin, breaking step by step
@@ -643,13 +679,14 @@ def simulate_phase_diversity_grid(wf_error_to_retrieve,
     #simulation_specfics would be one of the tuples in phase dverse info
     for simulation_specifics in phase_diverse_inputs:
         n_info = int((len(simulation_specifics))/2)
+        indices = simulation_specifics[:n_info]
+        defocus_distances = simulation_specifics[n_info:]
         #indices first half
         #defocus_distance is second half
         
     #for index_x in phase_diverse_inputs.shape[0]:
         defocus_dictionary= {}
         #this takes second two information in tuple of simualtion_specifics
-        defocus_distances = simulation_specifics[n_info:]
         for defocus_distance in defocus_distances:
 
             defocus_phase = calculate_defocus_phase(seal_parameters,
@@ -674,12 +711,16 @@ def simulate_phase_diversity_grid(wf_error_to_retrieve,
                                                      verbose =True)
         #results.append(metrics)
         #indices is first half of tuple
-        indices = simulation_specifics[:n_info]
         #need to add index checks and make sure indices are within bounds
         
         phase_diversity_grid[indices] = metrics['rms_error']
 
     np.save(file_name_out, phase_diversity_grid) #will assign name when function runs
+    print("phase_diversity_grid stats:")
+    print("Min:", np.min(phase_diversity_grid))
+    print("Max:", np.max(phase_diversity_grid))
+    print("Nonzero count:", np.count_nonzero(phase_diversity_grid))
+    print("Shape:", phase_diversity_grid.shape)
 
     return phase_diversity_grid
 
@@ -706,7 +747,9 @@ def plot_phase_diversity_heat_map(phase_diversity_grid,
     """
     plt.clf()
 
-    plt.imshow(phase_diversity_grid)
+    extent = [-10, 10, -10, 10]  # assuming defocus in mm, update if different
+    plt.imshow(phase_diversity_grid, origin='lower', extent=extent)
+
 
 
     plt.colorbar(label='RMS Error')
@@ -724,7 +767,8 @@ def plot_phase_diversity_heat_map(phase_diversity_grid,
 
 ##WIP##
 ##WIP##
-def main(seal_parameters, #might be defocus_grid
+def main(seal_parameters,
+         phase_diverse_inputs,#might be defocus_grid
          file_name_out,  
          heatmap_plot_out,
          zernike_index = 6
@@ -733,22 +777,25 @@ def main(seal_parameters, #might be defocus_grid
     Main driver function for SEAL phase diversity simulation and retrieval.
 
     This function:
-    - Builds simulation elements
-    - Injects a known Zernike aberration into the wavefront
-    - Simulates a focused PSF
-    - Performs phase diversity retrieval over a grid of defocus configurations
-    - Generates a heatmap of the RMS phase retrieval error
+    - Builds simulation elements.
+    - Injects a known Zernike aberration into the wavefront.
+    - Simulates a focused PSF.
+    - Performs phase diversity retrieval over a grid of defocus configurations.
+    - Generates and saves a heatmap of the RMS phase retrieval error.
 
-    Parameters:
-        seal_parameters (dict): Configuration for SEAL optical system.
-        physical_defocus_range (list of tuples): Each tuple should be 
-            (i, j, defocus_1, defocus_2, ...) indicating grid index and defocus values.
-        file_name_out (str): File path to save the 2D phase retrieval error grid (.npy).
-        heatmap_plot_out (str): File path to save the resulting RMS heatmap figure.
-        zernike_index (int): Index of the Zernike mode to inject as the known aberration.
-
-    Returns:
-        None
+    Parameters
+    ----------
+    seal_parameters : dict
+        Configuration for SEAL optical system.
+    phase_diverse_inputs : list
+        Each entry should be a tuple (i, j, defocus_1, defocus_2, ...)
+        indicating grid indices and defocus values.
+    file_name_out : str
+        File path to save the 2D phase retrieval error grid (.npy).
+    heatmap_plot_out : str
+        File path to save the resulting RMS heatmap figure.
+    zernike_index : int, optional
+        Index of the Zernike mode to inject as the known aberration.
     """
 
     # Build simulation elements like pupil grid, aperture, Zernike/Fourier modes, etc.
@@ -828,6 +875,7 @@ if __name__ == "__main__":
     
 
 main(seal_parameters,
+     phase_diverse_inputs,
      file_name_out ='example_file_name.npy',
      heatmap_plot_out= 'example_heatmap.png')
 
