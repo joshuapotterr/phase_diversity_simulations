@@ -113,7 +113,10 @@ def build_seal_simulation(seal_parameters):
 ##Core for Phase Retrieval
 ##########################
 
-def convert_psf_estimate_to_phase(psf_estimate, seal_parameters, telescope_pupil, phase_unwrap=None):
+def convert_psf_estimate_to_phase(psf_estimate, 
+                                  seal_parameters, 
+                                  telescope_pupil, 
+                                  phase_unwrap=None):
     """
     Convert a PSF estimate into a pupil phase map using inverse Fourier optics.
 
@@ -389,7 +392,7 @@ def calculate_phase_retrieval_accuracy(
 
 def simulate_focused_image(wf_error_to_retrieve, 
                           simulation_elements, 
-                          wavelength):
+                          seal_parameters):
     """
     Simulate a focused wavefront image using a specified phase error.
 
@@ -817,6 +820,7 @@ def main(seal_parameters,
     system_truth_intensity, system_truth_phase, system_truth = simulate_focused_image(wf_error_to_retrieve,
                                           simulation_elements,
                                           wavelength)
+
     phase_diversity_grid= simulate_phase_diversity_grid(
             phase_diverse_inputs = phase_diverse_inputs,
             simulation_elements = simulation_elements,
@@ -875,6 +879,12 @@ if __name__ == "__main__":
         match_x = x_wise_m[index_x] 
         match_y = y_wise_m[index_y] 
         #List of tuples
+
+        '''
+        could delete  and replace with 
+        phase_diverse_inputs.append((index_x, index_y, match_x, match_y)) 
+        to remove type error in delta_to_p
+        '''
         defocus_dict = {
             match_x: calculate_defocus_phase(seal_parameters, 
                                              simulation_elements, 
@@ -884,6 +894,7 @@ if __name__ == "__main__":
                                              match_y)
         }
         phase_diverse_inputs.append((index_x, index_y, defocus_dict))
+        
     
     
 
