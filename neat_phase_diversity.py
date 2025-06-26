@@ -432,6 +432,9 @@ def simulate_focused_image(wf_error_to_retrieve,
     #assert simulation_elements['telescope_pupil'].shape == wf_error_to_retrieve.shape, \
     "Wavefront error and telescope pupil shape mismatch"
     #.intensity gives us our actual image, and .shaped formats it into an ndarray in order to pass to FDPR
+    #Does this need to get propagated to Focal using Fraunhofer?
+    #psf_list output is full of zeros and i only get 2 non-zero returns
+
     return wf_focused_intensity.shaped, wf_focused_phase, wf_focused
     
 
