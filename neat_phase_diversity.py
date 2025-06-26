@@ -190,7 +190,7 @@ def check_phase_estimate(system_truth_phase, phase_estimate,masking_pupil):
         - You may optionally consider subtracting the median from each phase before comparison
           to eliminate piston effects.
     """
-    true_phase = system_truth_phase.shaped # Get true phase
+    true_phase = system_truth_phase # Get true phase
     mask = np.array(masking_pupil.shaped, dtype =bool)# Apply mask to non-zero phase region
     #implement med_subtracted, ie passing the dictionary will help with this(pupil_phase - median blah blah)
     difference_true_vs_estimate = (true_phase - phase_estimate) #Compute difference
@@ -284,7 +284,7 @@ def run_phase_retrieval(system_truth_intensity,
     #consider asserting, "assert all(isinstance(seal_parameters['image_dx'], (float, int)))
 
     mp= FocusDiversePhaseRetrieval(psf_list,
-                                   seal_parameters['wavelength_meter'], 
+                                   seal_parameters['wavelength_meter'], #Jarens code is not in Meters
                                    dx_list, 
                                    distance_list)
 
@@ -391,14 +391,36 @@ def simulate_focused_image(wf_error_to_retrieve,
         - Assumes the pupil shape is compatible with the input phase shape.
     """
     telescope_pupil=simulation_elements['telescope_pupil']
+    print("Telescope pupil max:", np.max(telescope_pupil))
+    print("Telescope pupil shape:", telescope_pupil.shape)
+    plt.imshow(telescope_pupil.shaped, cmap='gray')
+    plt.title("Telescope Pupil")
+    plt.colorbar()
+    plt.show()
+    print("Wavefront error max/min:", np.max(wf_error_to_retrieve), np.min(wf_error_to_retrieve))
+    plt.imshow(wf_error_to_retrieve, cmap='seismic')
+    plt.title("Wavefront Error to Retrieve")
+    plt.colorbar()
+    plt.show()
     wf_focused = Wavefront(telescope_pupil * np.exp(1j * wf_error_to_retrieve.flatten()), 
                    seal_parameters['wavelength_meter'])
+    prop2f = FraunhoferPropagator(simulation_elements['pupil_grid'],
+                                simulation_elements['focal_grid'],
+                                focal_length=seal_parameters['focal_length_meters']
+                                )
+    wf_focused = prop2f(wf_focused)
     wf_focused_intensity = wf_focused.intensity
-    wf_focused_phase = wf_focused.phase
+    wf_focused_phase = resize(wf_focused.phase.reshape(wf_focused_intensity.shaped.shape),
+                          (seal_parameters['pupil_pixel_dimension'], seal_parameters['pupil_pixel_dimension']))
+    resize_256 = (seal_parameters['pupil_pixel_dimension'], seal_parameters['pupil_pixel_dimension'])
+    wf_focused_intensity= resize(wf_focused_intensity.shaped, resize_256)
+    print('wf_focused_intensity shape is :', wf_focused_intensity.shape)
+    print('wf_focused_phase shape is :', wf_focused_phase.shape)
+
     #assert simulation_elements['telescope_pupil'].shape == wf_error_to_retrieve.shape, \
     "Wavefront error and telescope pupil shape mismatch"
     #.intensity gives us our actual image, and .shaped formats it into an ndarray in order to pass to FDPR
-    return wf_focused_intensity.shaped, wf_focused_phase, wf_focused
+    return wf_focused_intensity, wf_focused_phase, wf_focused
     
 
 def simulate_defocused_image(defocus_phase,
@@ -574,7 +596,7 @@ def focus_diverse_phase_retrieval(system_truth,
         defocus_psfs[defocus_distance]=defocused_psf
 
         #run it
-        psf_estimate, cost_functions = run_phase_retrieval(
+    psf_estimate, cost_functions = run_phase_retrieval(
             system_truth,
             defocus_psfs,
             seal_parameters
@@ -641,29 +663,60 @@ def simulate_phase_diversity_grid(wf_error_to_retrieve,
 
     ##Step 3: loop through each focus input
     #simulation_specfics would be one of the tuples in phase dverse info
-    for index_x,index_y, defocus_dictionary in phase_diverse_inputs:
+    for simulation_specifics in phase_diverse_inputs:
+        n_info = int((len(simulation_specifics))/2)
+        defocus_distances = simulation_specifics[n_info:]
+        indices = simulation_specifics[:n_info]
+        #indices first half
+        #defocus_distance is second half
+        print(f"Attempting simulation at {indices} with defocuses: {defocus_distances}")
 
-        psf_estimate, cost_functions = focus_diverse_phase_retrieval(system_truth_intensity, 
-                                                                     defocus_dictionary,
-                                                                     wf_error_to_retrieve, 
-                                                                     seal_parameters, 
-                                                                     simulation_elements)
-        
-        metrics = calculate_phase_retrieval_accuracy(system_truth_phase, 
-                                                     psf_estimate, 
-                                                     cost_functions, 
-                                                     seal_parameters,
-                                                     simulation_elements,
-                                                     phase_unwrap_method = 'phase_unwrap_2d', 
-                                                     verbose =True)
-        #results.append(metrics)
-        #indices is first half of tuple
+        try:
+            print(f"Running sim for indices {indices}, defocuses: {defocus_distances}")
+  
+            defocus_dictionary= {}
+            #this takes second two information in tuple of simualtion_specifics
 
-        #need to add index checks and make sure indices are within bounds
-        
-        phase_diversity_grid[index_x, index_y] = metrics['rms_error']
+            for defocus_distance in defocus_distances:
+
+                defocus_phase = calculate_defocus_phase(seal_parameters,
+                                                        simulation_elements,
+                                                        defocus_distance)
+                defocus_dictionary[defocus_distance] = defocus_phase
+            print("TYPE OF defocus_dictionary:", type(defocus_dictionary))
+            print("KEYS:", defocus_dictionary.keys() if hasattr(defocus_dictionary, 'keys') else 'not a dict')
+
+            psf_estimate, cost_functions = focus_diverse_phase_retrieval(system_truth_intensity, 
+                                                                        defocus_dictionary,
+                                                                        wf_error_to_retrieve, 
+                                                                        seal_parameters, 
+                                                                        simulation_elements)
+            
+            metrics = calculate_phase_retrieval_accuracy(system_truth_phase, 
+                                                        psf_estimate, 
+                                                        cost_functions, 
+                                                        seal_parameters,
+                                                        simulation_elements,
+                                                        phase_unwrap_method = 'phase_unwrap_2d', 
+                                                        verbose =True)
+            #results.append(metrics)
+            #indices is first half of tuple
+            #need to add index checks and make sure indices are within bounds
+            
+            phase_diversity_grid[indices] = metrics['rms_error']
+
+        except Exception as e:
+            import traceback
+            print(f" Failed at {indices}: {e}")
+            traceback.print_exc()
+
 
     np.save(file_name_out, phase_diversity_grid) #will assign name when function runs
+    print("phase_diversity_grid stats:")
+    print("Min:", np.min(phase_diversity_grid))
+    print("Max:", np.max(phase_diversity_grid))
+    print("Nonzero count:", np.count_nonzero(phase_diversity_grid))
+    print("Shape:", phase_diversity_grid.shape)
 
     return phase_diversity_grid
 
@@ -689,9 +742,8 @@ def plot_phase_diversity_heat_map(phase_diversity_grid,
         None
     """
     plt.clf()
-
-    plt.imshow(phase_diversity_grid)
-
+    extent = [-10, 10, -10, 10]  # assuming defocus in mm, update if different
+    plt.imshow(phase_diversity_grid, origin='lower', extent=extent)
 
     plt.colorbar(label='RMS Error')
 
@@ -709,7 +761,7 @@ def plot_phase_diversity_heat_map(phase_diversity_grid,
 ##WIP##
 ##WIP##
 def main(seal_parameters,
-         physical_defocus_range, #might be defocus_grid
+         phase_diverse_inputs, #might be defocus_grid
          file_name_out,  
          heatmap_plot_out,
          zernike_index = 6
@@ -751,7 +803,7 @@ def main(seal_parameters,
                                           simulation_elements,
                                           wavelength)
     phase_diversity_grid= simulate_phase_diversity_grid(
-            phase_diverse_inputs = physical_defocus_range,
+            phase_diverse_inputs = phase_diverse_inputs,
             simulation_elements = simulation_elements,
             seal_parameters = seal_parameters,
             wavelength = wavelength,
@@ -779,8 +831,9 @@ if __name__ == "__main__":
         'focal_length_meters': 500e-3,
         'q': 16,
         'Num_airycircles': 16,
-        'grid_dim': 100
+        'grid_dim': 12
          }
+    #check if this needa to be in microns
     seal_parameters['wavelength']=seal_parameters['wavelength_meter']
     #some list of defocus distances 
     f = seal_parameters['focal_length_meters']
@@ -798,7 +851,7 @@ if __name__ == "__main__":
     #unique (i,j) index pairs, upper triangle to avoid mirror
     upper_triangle = np.triu_indices(dim, 1)
     phase_diverse_inputs= []
-
+ 
     #build each input set
     #input should  = (index_i,index_j, {defocus1_m:phase1, defocus2_m:phase2})
 
@@ -809,18 +862,28 @@ if __name__ == "__main__":
         match_y = y_wise_m[index_y] 
         #List of tuples
         # Convert defocus distances to phase maps
-        defocus_dict = {
-            match_x: calculate_defocus_phase(seal_parameters, simulation_elements, match_x),
-            match_y: calculate_defocus_phase(seal_parameters, simulation_elements, match_y)
+        
+        ''' 
+       defocus_dict = {
+            match_x: calculate_defocus_phase(seal_parameters, 
+                                             simulation_elements, 
+                                             match_x),
+            match_y: calculate_defocus_phase(seal_parameters, 
+                                             simulation_elements, 
+                                             match_y)
         }
         phase_diverse_inputs.append((index_x, index_y, defocus_dict))
-     
+        '''
+
+        phase_diverse_inputs.append((index_x, index_y, match_x, match_y)) 
+        
+    
+    plt.imshow(upper_triangle)
+    
 
     
 
 main(seal_parameters,
-     physical_defocus_range=phase_diverse_inputs,
+     phase_diverse_inputs,
      file_name_out ='example_file_name.npy',
      heatmap_plot_out= 'example_heatmap.png')
-
-
