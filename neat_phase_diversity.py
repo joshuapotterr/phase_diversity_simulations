@@ -870,8 +870,16 @@ if __name__ == "__main__":
         match_x = x_wise_m[index_x] 
         match_y = y_wise_m[index_y] 
         #List of tuples
-        phase_diverse_inputs.append((index_x, index_y, match_x, match_y)) 
-
+        defocus_dict = {
+            match_x: calculate_defocus_phase(seal_parameters, 
+                                             simulation_elements, 
+                                             match_x),
+            match_y: calculate_defocus_phase(seal_parameters, 
+                                             simulation_elements, 
+                                             match_y)
+        }
+        phase_diverse_inputs.append((index_x, index_y, defocus_dict))
+    
     
 
 main(seal_parameters,
