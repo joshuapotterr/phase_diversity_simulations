@@ -427,15 +427,25 @@ def simulate_focused_image(wf_error_to_retrieve,
     telescope_pupil=simulation_elements['telescope_pupil']
     wf_focused = Wavefront(telescope_pupil * np.exp(1j * wf_error_to_retrieve.flatten()), 
                    seal_parameters['wavelength_meter'])
+    
+    prop2f = FraunhoferPropagator(simulation_elements['pupil_grid'],
+                                simulation_elements['focal_grid'],
+                                focal_length=seal_parameters['focal_length_meters']
+                                )
+    wf_focused = prop2f(wf_focused)
     wf_focused_intensity = wf_focused.intensity
     wf_focused_phase = wf_focused.phase
+    resize_256 = (seal_parameters['pupil_pixel_dimension'], seal_parameters['pupil_pixel_dimension'])
+    wf_focused= resize(wf_focused_intensity.shaped, resize_256)
+    print('wf_focused shape is :', wf_focused_intensity.shape)
+    
     #assert simulation_elements['telescope_pupil'].shape == wf_error_to_retrieve.shape, \
     "Wavefront error and telescope pupil shape mismatch"
     #.intensity gives us our actual image, and .shaped formats it into an ndarray in order to pass to FDPR
     #Does this need to get propagated to Focal using Fraunhofer?
     #psf_list output is full of zeros and i only get 2 non-zero returns
 
-    return wf_focused_intensity.shaped, wf_focused_phase, wf_focused
+    return wf_focused_intensity, wf_focused_phase, wf_focused
     
 
 def simulate_defocused_image(defocus_phase,
