@@ -202,7 +202,7 @@ def check_phase_estimate(system_truth_phase, phase_estimate,masking_pupil):
     - P2V is calculated on the unmasked difference (may include edge effects).
     - Optionally, the median can be subtracted from each phase map before comparison to remove piston terms.
     """
-    true_phase = system_truth_phase.shaped # Get true phase
+    true_phase = system_truth_phase # Get true phase
     mask = np.array(masking_pupil.shaped, dtype =bool)# Apply mask to non-zero phase region
     #implement med_subtracted, ie passing the dictionary will help with this(pupil_phase - median blah blah)
     difference_true_vs_estimate = (true_phase - phase_estimate) #Compute difference
@@ -434,7 +434,8 @@ def simulate_focused_image(wf_error_to_retrieve,
                                 )
     wf_focused = prop2f(wf_focused)
     wf_focused_intensity = wf_focused.intensity
-    wf_focused_phase = wf_focused.phase
+    wf_focused_phase = resize(wf_focused.phase.reshape(wf_focused_intensity.shaped.shape),
+                          (seal_parameters['pupil_pixel_dimension'], seal_parameters['pupil_pixel_dimension']))
     resize_256 = (seal_parameters['pupil_pixel_dimension'], seal_parameters['pupil_pixel_dimension'])
     wf_focused= resize(wf_focused_intensity.shaped, resize_256)
     print('wf_focused shape is :', wf_focused_intensity.shape)
