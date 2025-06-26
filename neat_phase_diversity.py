@@ -723,8 +723,7 @@ def plot_phase_diversity_heat_map(phase_diversity_grid,
 
 ##WIP##
 ##WIP##
-def main(seal_parameters,
-         physical_defocus_range, #might be defocus_grid
+def main(seal_parameters, #might be defocus_grid
          file_name_out,  
          heatmap_plot_out,
          zernike_index = 6
@@ -766,7 +765,7 @@ def main(seal_parameters,
                                           simulation_elements,
                                           wavelength)
     phase_diversity_grid= simulate_phase_diversity_grid(
-            phase_diverse_inputs = physical_defocus_range,
+            phase_diverse_inputs = phase_diverse_inputs,
             simulation_elements = simulation_elements,
             seal_parameters = seal_parameters,
             wavelength = wavelength,
@@ -828,7 +827,6 @@ if __name__ == "__main__":
     
 
 main(seal_parameters,
-     physical_defocus_range=phase_diverse_inputs,
      file_name_out ='example_file_name.npy',
      heatmap_plot_out= 'example_heatmap.png')
 
