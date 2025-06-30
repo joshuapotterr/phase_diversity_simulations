@@ -554,15 +554,26 @@ def calculate_defocus_phase(seal_parameters,
     defocus_template =simulation_elements['zernike_sample_12'][3]
 
     template_p2v=np.max(defocus_template)-np.min(defocus_template) 
+    assert template_p2v > 0
     #Convert physical defocus distance to phase P2V using delta_to_p()
+    f = seal_parameters['focal_length_meters']
+    D =seal_parameters['pupil_size']
+    target_p2v = 2
+    unit_defocus_phase = abs(delta_to_p(1e-2,f,D))
+    scaling = target_p2v/unit_defocus_phase
+    delta_scaled = defocus_distance*scaling
     defocus_p2v = delta_to_p(
-                            delta = defocus_distance,
+                            delta = delta_scaled,
                             f = seal_parameters['focal_length_meters'],
                             D=seal_parameters['pupil_size']
                             )
-    defocus_phase = (defocus_template*defocus_p2v)/template_p2v
+    print(f"delta_to_p({defocus_distance:.2e}, f={f:.2e}, D={D:.2e}) = {delta_to_p(defocus_distance, f, D):.4e}")
+
     
+    defocus_phase = (defocus_template*defocus_p2v)/template_p2v
+    print(f"Defocus: {defocus_distance:.5f}, delta: {D:.2e}, template_p2v: {template_p2v:.2e}, max phase: {np.max(defocus_phase):.2f}")
     return defocus_phase
+
 
 
 
