@@ -298,8 +298,8 @@ def run_phase_retrieval(system_truth_intensity,
 
     mp= FocusDiversePhaseRetrieval(psf_list,
                                    seal_parameters['wavelength_micron'], #JARENS NOT IN METER
-                                   dx_list, 
-                                   distance_list)
+                                   dx_list, #picel sale of arrrays in psf list in microns
+                                   distance_list)#distance listdefocus_positions should be defocus positions in microns
 
     for i in range(num_iterations):
             psf_estimate = mp.step() ##does this for loop overwrite psf_estimate each time
@@ -881,34 +881,32 @@ if __name__ == "__main__":
     y_wise_m = y_wise /1000
 
     #unique (i,j) index pairs, upper triangle to avoid mirror
-    upper_triangle = np.triu_indices(dim, 1)
+    
     phase_diverse_inputs= []
 
     #build each input set
     #input should  = (index_i,index_j, {defocus1_m:phase1, defocus2_m:phase2})
 
-    for upper_triangle_indices in upper_triangle: 
-        index_x = upper_triangle_indices[0] 
-        index_y = upper_triangle_indices[1] 
-        match_x = x_wise_m[index_x] 
-        match_y = y_wise_m[index_y] 
-        #List of tuples
+    #unique (i,j) index pairs, upper triangle to avoid mirror
+    
+    for i in range(dim):
+        for j in range(dim):
+            if i == j:
+                continue  # optional: skip diagonal (same defocus twice)
+            #corresponding physcial defocus distances in meter
+            match_x = x_wise_m[i]
+            match_y = y_wise_m[j]
 
-        '''
-        could delete  and replace with 
-        phase_diverse_inputs.append((index_x, index_y, match_x, match_y)) 
-        to remove type error in delta_to_p
-        '''
-        defocus_dict = {
-            match_x: calculate_defocus_phase(seal_parameters, 
-                                             simulation_elements, 
-                                             match_x),
-            match_y: calculate_defocus_phase(seal_parameters, 
-                                             simulation_elements, 
-                                             match_y)
-        }
-        phase_diverse_inputs.append((index_x, index_y, defocus_dict))
-        
+            #for each distance, generate corresponding phase
+            #using known d to p converstion
+            defocus_dict = {
+                match_x: calculate_defocus_phase(seal_parameters, simulation_elements, match_x),
+                match_y: calculate_defocus_phase(seal_parameters, simulation_elements, match_y)
+            }
+            #add to input list for simulation
+            phase_diverse_inputs.append((i, j, defocus_dict))
+
+    
     
     
 
