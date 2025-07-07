@@ -96,6 +96,9 @@ def build_seal_simulation(seal_parameters):
     fourier_grid = CartesianGrid(fourier_coords)
     fourier_basis = make_fourier_basis(pupil_grid, fourier_grid)
     fourier_sample_12 = [mode.shaped for mode in fourier_basis]
+    pupil_wavefront = Wavefront(Field(np.ones(pupil_grid.shape), pupil_grid), 
+                                seal_parameters['wavelength'])
+
 
     # Return all components as a dictionary
     simulation_elements = {
@@ -105,7 +108,9 @@ def build_seal_simulation(seal_parameters):
         'telescope_pupil': telescope_pupil,
         'masking_pupil': masking_pupil,
         'zernike_sample_12' : zernike_sample_12,
-        'fourier_sample_12' : fourier_sample_12 }
+        'fourier_sample_12' : fourier_sample_12 ,
+        'pupil_wavefront' : pupil_wavefront
+        }
     
 
     return simulation_elements
@@ -113,10 +118,7 @@ def build_seal_simulation(seal_parameters):
 ##Core for Phase Retrieval
 ##########################
 
-def convert_psf_estimate_to_phase(psf_estimate, 
-                                  seal_parameters, 
-                                  telescope_pupil, 
-                                  phase_unwrap=None):
+def convert_psf_estimate_to_phase(psf_estimate, seal_parameters, telescope_pupil, phase_unwrap=None):
     """
     Convert a PSF estimate into a pupil phase map using inverse Fourier optics.
 
@@ -202,7 +204,7 @@ def check_phase_estimate(system_truth_phase, phase_estimate,masking_pupil):
     - P2V is calculated on the unmasked difference (may include edge effects).
     - Optionally, the median can be subtracted from each phase map before comparison to remove piston terms.
     """
-    true_phase = system_truth_phase # Get true phase
+    true_phase = system_truth_phase.shaped # Get true phase
     mask = np.array(masking_pupil.shaped, dtype =bool)# Apply mask to non-zero phase region
     #implement med_subtracted, ie passing the dictionary will help with this(pupil_phase - median blah blah)
     difference_true_vs_estimate = (true_phase - phase_estimate) #Compute difference
@@ -296,10 +298,10 @@ def run_phase_retrieval(system_truth_intensity,
     dx_list= [seal_parameters['image_dx'] for key in distance_list]
     #consider asserting, "assert all(isinstance(seal_parameters['image_dx'], (float, int)))
 
-    mp= FocusDiversePhaseRetrieval(psf_list,
-                                   seal_parameters['wavelength_micron'], #JARENS NOT IN METER
-                                   dx_list, #picel sale of arrrays in psf list in microns
-                                   distance_list)#distance listdefocus_positions should be defocus positions in microns
+    mp= FocusDiversePhaseRetrieval(psflist= psf_list,
+                                   wvl= seal_parameters['wavelength_micron'], #JARENS NOT IN METER
+                                   dxs =dx_list, 
+                                   defocus_positions= distance_list)
 
     for i in range(num_iterations):
             psf_estimate = mp.step() ##does this for loop overwrite psf_estimate each time
@@ -392,7 +394,7 @@ def calculate_phase_retrieval_accuracy(
 
 def simulate_focused_image(wf_error_to_retrieve, 
                           simulation_elements, 
-                          seal_parameters):
+                          wavelength):
     """
     Simulate a focused wavefront image using a specified phase error.
 
@@ -427,26 +429,12 @@ def simulate_focused_image(wf_error_to_retrieve,
     telescope_pupil=simulation_elements['telescope_pupil']
     wf_focused = Wavefront(telescope_pupil * np.exp(1j * wf_error_to_retrieve.flatten()), 
                    seal_parameters['wavelength_meter'])
-    
-    prop2f = FraunhoferPropagator(simulation_elements['pupil_grid'],
-                                simulation_elements['focal_grid'],
-                                focal_length=seal_parameters['focal_length_meters']
-                                )
-    wf_focused = prop2f(wf_focused)
     wf_focused_intensity = wf_focused.intensity
-    wf_focused_phase = resize(wf_focused.phase.reshape(wf_focused_intensity.shaped.shape),
-                          (seal_parameters['pupil_pixel_dimension'], seal_parameters['pupil_pixel_dimension']))
-    resize_256 = (seal_parameters['pupil_pixel_dimension'], seal_parameters['pupil_pixel_dimension'])
-    wf_focused= resize(wf_focused_intensity.shaped, resize_256)
-    print('wf_focused shape is :', wf_focused_intensity.shape)
-    
+    wf_focused_phase = wf_focused.phase
     #assert simulation_elements['telescope_pupil'].shape == wf_error_to_retrieve.shape, \
     "Wavefront error and telescope pupil shape mismatch"
     #.intensity gives us our actual image, and .shaped formats it into an ndarray in order to pass to FDPR
-    #Does this need to get propagated to Focal using Fraunhofer?
-    #psf_list output is full of zeros and i only get 2 non-zero returns
-
-    return wf_focused_intensity, wf_focused_phase, wf_focused
+    return wf_focused_intensity.shaped, wf_focused_phase, wf_focused
     
 
 def simulate_defocused_image(defocus_phase,
@@ -551,6 +539,7 @@ def calculate_defocus_phase(seal_parameters,
     - This function requires delta_to_p to convert physical defocus to phase P2V.
     """
 
+
     defocus_template =simulation_elements['zernike_sample_12'][3]
 
     template_p2v=np.max(defocus_template)-np.min(defocus_template) 
@@ -558,7 +547,7 @@ def calculate_defocus_phase(seal_parameters,
     #Convert physical defocus distance to phase P2V using delta_to_p()
     f = seal_parameters['focal_length_meters']
     D =seal_parameters['pupil_size']
-    target_p2v = 2
+    target_p2v = 3
     unit_defocus_phase = abs(delta_to_p(1e-2,f,D))
     scaling = target_p2v/unit_defocus_phase
     delta_scaled = defocus_distance*scaling
@@ -573,7 +562,6 @@ def calculate_defocus_phase(seal_parameters,
     defocus_phase = (defocus_template*defocus_p2v)/template_p2v
     print(f"Defocus: {defocus_distance:.5f}, delta: {D:.2e}, template_p2v: {template_p2v:.2e}, max phase: {np.max(defocus_phase):.2f}")
     return defocus_phase
-
 
 
 
@@ -701,20 +689,15 @@ def simulate_phase_diversity_grid(wf_error_to_retrieve,
     ##Step2: empty error grid
     dim = seal_parameters['grid_dim'] 
     phase_diversity_grid = np.zeros((dim,dim))
-
+    
 
     ##Step 3: loop through each focus input
     #simulation_specfics would be one of the tuples in phase dverse info
     for simulation_specifics in phase_diverse_inputs:
-        n_info = int((len(simulation_specifics))/2)
-        indices = simulation_specifics[:n_info]
-        defocus_distances = simulation_specifics[n_info:]
-        #indices first half
-        '''    
-        index_x, index_y, defocus_dict = simulation_specifics
+        index_x, index_y, defocus_dictionary = simulation_specifics
         indices = (index_x, index_y)
-        defocus_distances = defocus_dict.keys()
-        '''
+        defocus_distances = defocus_dictionary.keys()
+        #indices first half
         #defocus_distance is second half
         
     #for index_x in phase_diverse_inputs.shape[0]:
@@ -747,6 +730,8 @@ def simulate_phase_diversity_grid(wf_error_to_retrieve,
         #need to add index checks and make sure indices are within bounds
         
         phase_diversity_grid[indices] = metrics['rms_error']
+        assert 0 <= indices[0] < dim and 0 <= indices[1] < dim
+
 
     np.save(file_name_out, phase_diversity_grid) #will assign name when function runs
     print("phase_diversity_grid stats:")
@@ -845,7 +830,6 @@ def main(seal_parameters,
     system_truth_intensity, system_truth_phase, system_truth = simulate_focused_image(wf_error_to_retrieve,
                                           simulation_elements,
                                           wavelength)
-
     phase_diversity_grid= simulate_phase_diversity_grid(
             phase_diverse_inputs = phase_diverse_inputs,
             simulation_elements = simulation_elements,
@@ -875,7 +859,7 @@ if __name__ == "__main__":
         'focal_length_meters': 500e-3,
         'q': 16,
         'Num_airycircles': 16,
-        'grid_dim': 100
+        'grid_dim':10
          }
     seal_parameters['wavelength']=seal_parameters['wavelength_meter']
     #some list of defocus distances 
@@ -890,34 +874,28 @@ if __name__ == "__main__":
     y_wise = np.linspace(-10,10, dim)
     x_wise_m = x_wise /1000
     y_wise_m = y_wise /1000
+    phase_diverse_inputs=[]
+    upper_triangle = np.triu_indices(dim,1)
+    upper_triangle_list = [[upper_triangle[0][i],upper_triangle[1][i] for i in range
+                            (np.shape(upper_triangle)[1])]]
 
-    #unique (i,j) index pairs, upper triangle to avoid mirror
-    
-    phase_diverse_inputs= []
+    for index in upper_triangle_list:
+        index_x, index_y = index
+        x,y = x_wise_m[index_x], y_wise_m[index_y]
+        defocus_dict = {
+            x: calculate_defocus_phase(seal_parameters, 
+                                             simulation_elements, 
+                                             x),
+            y: calculate_defocus_phase(seal_parameters, 
+                                             simulation_elements, 
+                                             y)
+        }
+        phase_diverse_inputs.append((index_x, index_y, defocus_dict))       
+        
 
-    #build each input set
-    #input should  = (index_i,index_j, {defocus1_m:phase1, defocus2_m:phase2})
 
-    #unique (i,j) index pairs, upper triangle to avoid mirror
-    
-    for i in range(dim):
-        for j in range(dim):
-            if i == j:
-                continue  # optional: skip diagonal (same defocus twice)
-            #corresponding physcial defocus distances in meter
-            match_x = x_wise_m[i]
-            match_y = y_wise_m[j]
 
-            #for each distance, generate corresponding phase
-            #using known d to p converstion
-            defocus_dict = {
-                match_x: calculate_defocus_phase(seal_parameters, simulation_elements, match_x),
-                match_y: calculate_defocus_phase(seal_parameters, simulation_elements, match_y)
-            }
-            #add to input list for simulation
-            phase_diverse_inputs.append((i, j, defocus_dict))
 
-    
     
     
 
@@ -925,5 +903,3 @@ main(seal_parameters,
      phase_diverse_inputs,
      file_name_out ='example_file_name.npy',
      heatmap_plot_out= 'example_heatmap.png')
-
-
