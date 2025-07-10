@@ -46,4 +46,18 @@ plt.savefig("zernike_mode_comparison.png")
 
 
 #lastly, dean and bowers used 2pi as p2v phase shhifts
-so we use a p_to_delta_function
+#so we use a p_to_delta_function
+def p_to_delta(P, f, D):
+    return 8 * P * (f/D)**2
+P = 2*pi
+target_defocus_mm = p_to_delta(P,f,D) * 1000 #in mm 
+#than backk into our sim via 
+defocus_distance = target_defocus_mm /1000 #in m
+phase_dean = calculate_defocus_phase(seal_parameters, simulation_elements defocus_distance)
+# to confirm
+p2v = np.max(phase_dean) - np.min(phase_dean)
+print(f"P2V phase = {p2v:.2f} radians")  # should be 2pi
+
+#now 
+phase_diverse_inputs = [(0, 1, -defocus_value, +defocus_value)]
+
