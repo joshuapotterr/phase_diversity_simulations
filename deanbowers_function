@@ -1,11 +1,11 @@
-#equation [9] of dean/bowers paper
+#equation [9] of dean/bowers paper, dimensionless
 def dean_bowers_max_list(fringes=11,
                  max_n=1, 
                  wavelength=simulation_elements['wavelength_meter']):
     
     return [fringes**2 / (4*((2*n)-1)) for n in range(max_n +1)]
 
-#inverse of normalized defocus equation
+#inverse of normalized defocus equation, output in m
 def a_hat_to_defocus(a_hat,f,D,wavelength):
     return (4 * f**2 * wavelength) / (np.pi * D**2) * a_hat
 
