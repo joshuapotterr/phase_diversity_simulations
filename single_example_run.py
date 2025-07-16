@@ -29,3 +29,20 @@ metrics = calculate_phase_retrieval_accuracy(
     system_truth_phase, psf_estimate, cost_functions, seal_parameters, simulation_elements,
     phase_unwrap_method="phase_unwrap_2d", verbose=True
 )
+plt.imshow(metrics['difference_true_vs_estimate'])
+# Create a full-size 2D array filled with zeros, i was unable to reshape the 'difference_image' due to its shape being 45350, due to it containing only the non-zero values
+full_diff_image = np.zeros((dim, dim))
+mask = simulation_elements['masking_pupil'].shaped.astype(bool)
+
+# Insert the masked values into their original locations
+full_diff_image[mask] = metrics['difference_image']
+
+# Plot the full 2D difference map with mask-applied values
+plt.figure(figsize=(6, 5))
+plt.imshow(full_diff_image, origin='lower')
+plt.colorbar(label='Phase Difference [rad]')
+plt.title('Masked Phase Difference (Truth - Estimate)')
+plt.xlabel('X')
+plt.ylabel('Y')
+plt.tight_layout()
+plt.show()
