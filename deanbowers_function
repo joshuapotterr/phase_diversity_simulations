@@ -1,63 +1,21 @@
-def dean_bowers(wavelength, focal_length, pupil_diameter):
-  #convert lam/4,am/2, lam into p2v
-  wave_p2v = [wavelength / 4, wavelength / 2, wavelength]
-  delta_list = [p_to_delta(P, focal_length, pupil_diameter) for P in wave_p2v]
+#equation [9] of dean/bowers paper
+def dean_bowers_max_list(fringes=11,
+                 max_n=1, 
+                 wavelength=simulation_elements['wavelength_meter']):
+    
+    return [fringes**2 / (4*((2*n)-1)) for n in range(max_n +1)]
 
-  #symetric defocus pairs
-  two_defocus_sets = [(-delta, delta) for delta in delta_list]
-  three_defocus_sets = [(-delta, 0.0, delta) for delta in delta_list]
-  return two_defocus_sets, three_defocus_sets
-wavelength = seal_parameters['wavelength_meter']
-f = seal_parameters['focal_length_meters']
-D = seal_parameters['pupil_size']
+#inverse of normalized defocus equation
+def a_hat_to_defocus(a_hat,f,D,wavelength):
+    return (4 * f**2 * wavelength) / (np.pi * D**2) * a_hat
 
-two_sets, three_sets = get_dean_bowers_defocus_set(wavelength, f, D)
-print("2-defocus configurations (in meters):", two_sets)
-print("3-defocus configurations (in meters):", three_sets)
+def dean_bowers_min(fringes=11,
+                    n=1,
+                    wavelength=simulation_elements['wavelength_meter']):
 
-#thinking doing something like 
-for defocus_distance in two_sets:
-phase_diverse_inputs.append((0,0, *defocus distances))
+    return (fringes**2)/(8*n)
+a_hats = dean_bowers_max_list(fringes=11, max_n=2, wavelength=wavelength)
+deltas = [a_hat_to_defocus(a, f, D, wavelength) for a in a_hats]
 
-#next, for the different zernikes, we already support that in our code, just put more numbers 
-zernike_indices = [4, 5, 6, 7, 8]  # astigmatism, coma, spherical...
-
-for idx in zernike_indices:
-    seal_parameters['zernike_index'] = idx  # optional if passing through
-    file_name = f'zernike_{idx}'
-    main()
-#than plot a result gird of some sort
-errors = []
-
-for idx in zernike_indices:
-    result_grid = np.load(f'zernike_{idx}_results.npy')
-    rms_min = np.min(result_grid)  # or use average, or center point
-    errors.append((idx, rms_min))
-indices = [e[0] for e in errors]
-rms_values = [e[1] for e in errors]
-
-plt.figure(figsize=(8,5))
-plt.bar([f'Z{idx}' for idx in indices], rms_values)
-plt.ylabel("RMS Retrieval Error [rad]")
-plt.title("Phase Retrieval Error per Zernike Mode")
-plt.grid(True)
-plt.tight_layout()
-plt.savefig("zernike_mode_comparison.png")
-
-
-#lastly, dean and bowers used 2pi as p2v phase shhifts
-#so we use a p_to_delta_function
-def p_to_delta(P, f, D):
-    return 8 * P * (f/D)**2
-P = 2*pi
-target_defocus_mm = p_to_delta(P,f,D) * 1000 #in mm 
-#than backk into our sim via 
-defocus_distance = target_defocus_mm /1000 #in m
-phase_dean = calculate_defocus_phase(seal_parameters, simulation_elements defocus_distance)
-# to confirm
-p2v = np.max(phase_dean) - np.min(phase_dean)
-print(f"P2V phase = {p2v:.2f} radians")  # should be 2pi
-
-#now 
-phase_diverse_inputs = [(0, 1, -defocus_value, +defocus_value)]
-
+defocus_distances = [-deltas[0], +deltas[0]]
+phase_diverse_inputs = [(0, 0, *defocus_distances)]
