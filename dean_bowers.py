@@ -32,6 +32,8 @@ max_n = 1
 f = seal_parameters['focal_length_meters']
 D = seal_parameters['pupil_size']
 wavelength = seal_parameters['wavelength_meter']
+wf_error_to_retrieve = .75* simulation_elements['fourier_sample_84'][80]
+
 a_hats = dean_bowers_max_list(fringes, max_n, wavelength)
 a_hat= a_hat_list[0]
 defocus_distance = a_hat_to_defocus(a_hat,f,D, wavelength)
