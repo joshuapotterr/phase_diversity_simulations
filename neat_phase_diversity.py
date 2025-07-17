@@ -32,7 +32,7 @@ def a_hat_to_defocus(a_hat,f,D,wavelength):
 
 def dean_bowers_min(fringes,
                     n):
-    v_hat=fringes/wavelength
+    v_hat=fringes
     return (v_hat**2)/(8*n)
 #Build the Seal Simulation
 
