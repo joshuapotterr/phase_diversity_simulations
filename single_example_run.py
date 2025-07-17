@@ -30,19 +30,37 @@ metrics = calculate_phase_retrieval_accuracy(
     phase_unwrap_method="phase_unwrap_2d", verbose=True
 )
 plt.imshow(metrics['difference_true_vs_estimate'])
-# Create a full-size 2D array filled with zeros, i was unable to reshape the 'difference_image' due to its shape being 45350, due to it containing only the non-zero values
-full_diff_image = np.zeros((dim, dim))
-mask = simulation_elements['masking_pupil'].shaped.astype(bool)
-
-# Insert the masked values into their original locations
-full_diff_image[mask] = metrics['difference_image']
-
-# Plot the full 2D difference map with mask-applied values
-plt.figure(figsize=(6, 5))
-plt.imshow(full_diff_image, origin='lower')
-plt.colorbar(label='Phase Difference [rad]')
-plt.title('Masked Phase Difference (Truth - Estimate)')
-plt.xlabel('X')
-plt.ylabel('Y')
-plt.tight_layout()
+# Plot the pupil phase
+plt.figure()
+plt.imshow(pupil_image.phase.shaped, cmap='viridis')
+plt.colorbar(label='Injected Phase [rad]')
+plt.title('Pupil Image Phase')
 plt.show()
+#injected aberration
+plt.figure()
+plt.imshow(wf_error_to_retrieve, cmap='viridis')
+plt.colorbar(label='Injected Phase [rad]')
+plt.title('Injected Wavefront Error (Truth)')
+plt.show()
+#retrieved phase
+plt.figure()
+plt.imshow(phase_estimate, cmap='viridis')
+plt.colorbar(label='Retrieved Phase [rad]')
+plt.title('Retrieved Pupil Phase')
+plt.show()
+#phase difference
+difference = simulation_elements['pupil_wavefront'].phase - phase_estimate
+plt.figure()
+plt.imshow(difference, cmap='RdBu')
+plt.colorbar(label='Phase Error [rad]')
+plt.title('Residual Phase (Truth - Estimate)')
+plt.show()
+#cost
+plt.figure()
+plt.semilogy(cost_functions[0])
+plt.xlabel('Iteration')
+plt.ylabel('Cost')
+plt.title('Cost Function Convergence')
+plt.grid(True)
+plt.show()
+
