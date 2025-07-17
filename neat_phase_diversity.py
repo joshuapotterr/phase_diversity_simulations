@@ -635,10 +635,7 @@ def focus_diverse_phase_retrieval(system_truth,
     #change to allow mulitple inptus
     defocus_psfs={}
     for defocus_distance in defocus_distances:
-
-        defocus_phase = phase_diverse_information[defocus_distance]
-        
-        
+        defocus_phase = phase_diverse_information[defocus_distance]        
         defocused_psf  = simulate_defocused_image(
             defocus_phase,
             wf_error_to_retrieve,
@@ -712,7 +709,6 @@ def simulate_phase_diversity_grid(wf_error_to_retrieve,
     ##Step2: empty error grid
     dim = seal_parameters['grid_dim'] 
     phase_diversity_grid = np.zeros((dim,dim))
-    
 
     ##Step 3: loop through each focus input
     #simulation_specfics would be one of the tuples in phase diverse info
@@ -755,7 +751,6 @@ def simulate_phase_diversity_grid(wf_error_to_retrieve,
         phase_diversity_grid[indices] = metrics['rms_error']
         assert 0 <= indices[0] < dim and 0 <= indices[1] < dim
 
-
     np.save(file_name_out, phase_diversity_grid) #will assign name when function runs
     print("phase_diversity_grid stats:")
     print("Min:", np.min(phase_diversity_grid))
@@ -787,22 +782,13 @@ def plot_phase_diversity_heat_map(phase_diversity_grid,
         None
     """
     plt.clf()
-
     extent = [-10, 10, -10, 10]  # assuming defocus in mm, update if different
     plt.imshow(phase_diversity_grid, origin='lower', extent=extent)
-
-
-
     plt.colorbar(label='RMS Error')
-
     plt.title('Phase Retrieval RMS Error Heatmap')
-
     plt.xlabel('Defocus Distance [m]')
-
     plt.ylabel('Defocus Distance [m]')
-
     plt.savefig(heatmap_plot_out)
-
     plt.clf()
     #keep in mind extent logic, need to tell physical x y labels 
 
@@ -868,10 +854,6 @@ def main(seal_parameters,
         phase_diversity_grid = phase_diversity_grid,
         heatmap_plot_out=heatmap_plot_out
         )
-
-def max_contrast():
-    return 
-
 
 if __name__ == "__main__": 
     #Define Variables
