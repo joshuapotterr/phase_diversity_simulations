@@ -23,21 +23,17 @@ def delta_to_p(delta, f, D):
 def dean_bowers_max_list(fringes=11,
                  max_n=1, 
                  wavelength=simulation_elements['wavelength_meter']):
-    v_hat= fringes/wavelength 
+    v_hat= fringes 
     
     return [v_hat**2 / (4*((2*n)-1)) for n in range(max_n +1)]
 #inverse of normalized defocus equation
 def a_hat_to_defocus(a_hat,f,D,wavelength):
     return (4 * f**2 * wavelength) / (np.pi * D**2) * a_hat
 
-def dean_bowers_min(fringes=11,
-                    n=1,
-                    wavelength=simulation_elements['wavelength_meter']):
+def dean_bowers_min(fringes,
+                    n):
     v_hat=fringes/wavelength
     return (v_hat**2)/(8*n)
-a_hats = dean_bowers_max_list(v_hat)
-deltas=[a_hat_to_defocus(a,f,D,wavelength) for a in a_hats]
-
 #Build the Seal Simulation
 
 def build_seal_simulation(seal_parameters):
