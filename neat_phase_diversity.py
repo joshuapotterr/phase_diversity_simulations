@@ -399,7 +399,7 @@ def calculate_phase_retrieval_accuracy(
     if verbose:
         make_cost_functions_plots(cost_functions)
 
-    return phase_estimate_metrics
+    return phase_estimate, phase_estimate_metrics
 
 ##Simulations
 #############
@@ -741,7 +741,7 @@ def simulate_phase_diversity_grid(wf_error_to_retrieve,
                                                                      seal_parameters, 
                                                                      simulation_elements)
         
-        metrics = calculate_phase_retrieval_accuracy(system_truth_phase, 
+        phase_estimate, metrics = calculate_phase_retrieval_accuracy(system_truth_phase, 
                                                      psf_estimate, 
                                                      cost_functions, 
                                                      seal_parameters,
