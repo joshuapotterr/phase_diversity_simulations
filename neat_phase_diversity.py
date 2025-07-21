@@ -62,7 +62,7 @@ def build_seal_simulation(seal_parameters):
             - 'aperture': Callable function to create circular aperture.
             - 'telescope_pupil': 2D array of the telescope pupil mask.
             - 'masking_pupil': 2D array of the masking pupil mask.
-            - 'zernike_sample_12': List of the first 12 Zernike modes (2D shaped).
+            - 'zernike_sample_256': List of the first 12 Zernike modes (2D shaped).
             - 'fourier_sample_84': List of 24 Fourier modes (2D shaped).
 
     Notes:
@@ -97,11 +97,11 @@ def build_seal_simulation(seal_parameters):
     
     #Make Zernike to store
     zernike_modes = make_zernike_basis(
-         num_modes=12,
+         num_modes=256,
          D=seal_parameters['pupil_size'],
          grid=pupil_grid
     )
-    zernike_sample_12 = [mode.shaped for mode in zernike_modes[:12]]
+    zernike_sample_256 = [mode.shaped for mode in zernike_modes[:256]]
     
     freq_pairs = [(i, 0) for i in range(1, 43)] + [(0, i) for i in range(1, 43)]  # 12 total
     kx = np.array([kx * 2 * np.pi / seal_parameters['pupil_size'] for kx, _ in freq_pairs])
@@ -121,7 +121,7 @@ def build_seal_simulation(seal_parameters):
         'aperture': aperture,
         'telescope_pupil': telescope_pupil,
         'masking_pupil': masking_pupil,
-        'zernike_sample_12' : zernike_sample_12,
+        'zernike_sample_256' : zernike_sample_256,
         'fourier_sample_84' : fourier_sample_84,
         'pupil_wavefront' : pupil_wavefront
         }
@@ -445,7 +445,7 @@ def simulate_focused_image(wf_error_to_retrieve,
     wf_focused_phase = wf_focused.phase
     pupil_image = wf_focused.copy()
     pupil_image.electric_field = np.exp(complex(0, 1)*
-                                        telescope_pupil.shaped*(simulation_elements['zernike_sample_12'][5]))
+                                        telescope_pupil.shaped*(simulation_elements['zernike_sample_256'][5]))
     #(phase_unwrap_2d(pupil_image.phase))
     #plt.colorplt.imshobar()
     #plt.title(f'Original Error injected')
@@ -542,7 +542,7 @@ def calculate_defocus_phase(seal_parameters,
             - 'pupil_size' (float): Pupil diameter in meters.
     simulation_elements : dict
         Simulation resources. Must include:
-            - 'zernike_sample_12' (list of ndarray): The first 12 shaped Zernike modes.
+            - 'zernike_sample_256' (list of ndarray): The first 12 shaped Zernike modes.
     defocus_distance : float
         Physical defocus distance in meters (can be positive or negative).
 
@@ -559,7 +559,7 @@ def calculate_defocus_phase(seal_parameters,
     """
 
 
-    defocus_template =simulation_elements['zernike_sample_12'][3]
+    defocus_template =simulation_elements['zernike_sample_256'][3]
 
     template_p2v=np.max(defocus_template)-np.min(defocus_template) 
     assert template_p2v > 0
@@ -834,7 +834,7 @@ def main(seal_parameters,
     wavelength = seal_parameters['wavelength_meter']
 
     # DEFINE ABERRATION TO RETRIEVE (ground truth) — outside the simulation functions
-    zernike_modes = simulation_elements['zernike_sample_12']
+    zernike_modes = simulation_elements['zernike_sample_256']
     wf_error_to_retrieve = 0.75 * zernike_modes[zernike_index]
     sinusoidal_abberation_low = .75 * simulation_elements['fourier_sample_84'][fourier_index_low]
     sinusoidal_abberation_high = .75 * simulation_elements['fourier_sample_84'][fourier_index_high]
