@@ -112,6 +112,13 @@ def build_seal_simulation(seal_parameters):
     fourier_sample_84 = [mode.shaped for mode in fourier_basis]
     pupil_wavefront = Wavefront(Field(np.ones(pupil_grid.shape), pupil_grid), 
                                 seal_parameters['wavelength'])
+    ##Orginal Workbook
+    original_wavefront = Wavefront(telescope_pupil, wavelength=650e-9)
+    prop2f = FraunhoferPropagator(pupil_grid,
+                                    focal_grid,
+                                    focal_length=seal_parameters['focal_length_meters']
+                                    )
+    original_focal_image = prop2f.forward(original_wavefront)
 
 
     # Return all components as a dictionary
@@ -123,7 +130,9 @@ def build_seal_simulation(seal_parameters):
         'masking_pupil': masking_pupil,
         'zernike_sample_256' : zernike_sample_256,
         'fourier_sample_84' : fourier_sample_84,
-        'pupil_wavefront' : pupil_wavefront
+        'pupil_wavefront' : pupil_wavefront,
+        'original_wavefront' : original_wavefront,
+        'original_focal_image' : original_focal_image
         }
     
 
