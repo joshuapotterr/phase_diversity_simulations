@@ -174,7 +174,17 @@ def convert_psf_estimate_to_phase(psf_estimate, seal_parameters, telescope_pupil
     #configure instrument for inverse transform
     seal_configuration = InstrumentConfiguration(seal_parameters)
     #compute complex field via reverse MFT, extract phase
-    raw_pupil_phase = np.angle(mft_rev(psf_estimate,seal_configuration)) 
+    raw_pupil_phase = np.angle(mft_rev(psf_estimate,seal_configuration))     
+    
+    plt.figure(figsize=(6, 5))
+    plt.imshow(raw_pupil_phase)
+    plt.colorbar(label='Phase Difference [rad]')
+    plt.title('raw pupil phase')
+    plt.xlabel('X')
+    plt.ylabel('Y')
+    plt.tight_layout()
+    plt.show()
+    
 
 
     #choose unwrap method
@@ -188,9 +198,16 @@ def convert_psf_estimate_to_phase(psf_estimate, seal_parameters, telescope_pupil
     #resize to the pupil dimensions and mask the outside
 
     pupil_phase = resize(raw_pupil_phase, (pupil_dim, pupil_dim)) * telescope_pupil.shaped
-    #plt.imshow(pupil_phase)
-    #plt.title(f'Pupil Phase')
-    #plt.show()
+    print(f'P2V error of Pupil Phase: {np.max(pupil_phase) - np.min(pupil_phase)}')
+    
+    plt.figure(figsize=(6, 5))
+    plt.imshow(pupil_phase)
+    plt.colorbar(label='Phase Difference [rad]')
+    plt.title('pupil phase')
+    plt.xlabel('X')
+    plt.ylabel('Y')
+    plt.tight_layout()
+    plt.show()
 
     return pupil_phase
 
