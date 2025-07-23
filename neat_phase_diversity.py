@@ -248,10 +248,11 @@ def check_phase_estimate(system_truth_phase, phase_estimate,masking_pupil):
     - P2V is calculated on the unmasked difference (may include edge effects).
     - Optionally, the median can be subtracted from each phase map before comparison to remove piston terms.
     """
-    true_phase = system_truth_phase.shaped # Get true phase
+
     mask = np.array(masking_pupil.shaped, dtype =bool)# Apply mask to non-zero phase region
     #implement med_subtracted, ie passing the dictionary will help with this(pupil_phase - median blah blah)
-    difference_true_vs_estimate = (true_phase - phase_estimate) #Compute difference
+    print(f'system_truth_phase type in check_phase_estimate: {system_truth_phase.shape}')
+    difference_true_vs_estimate = (system_truth_phase - phase_estimate) #Compute difference
     difference_masked = difference_true_vs_estimate[mask]
     rms_error = np.sqrt(np.mean(difference_masked ** 2))
     ##do i want difference_masked? 
