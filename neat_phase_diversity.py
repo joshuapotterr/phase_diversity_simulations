@@ -481,23 +481,19 @@ def simulate_focused_image(wf_error_to_retrieve,
     - The input phase error is flattened to match the expected format for constructing the Wavefront.
     - Returned intensity is shaped to match the pupil grid and can be used in downstream phase retrieval.
     """
+    prop2f = FraunhoferPropagator(simulation_elements['pupil_grid'],
+                                    simulation_elements['focal_grid'],
+                                    focal_length=seal_parameters['focal_length_meters']
+                                    )
     telescope_pupil=simulation_elements['telescope_pupil']
-    wf_focused = Wavefront(telescope_pupil * np.exp(1j * wf_error_to_retrieve.flatten()), 
+    wf_focused_pupil = Wavefront(simulation_elements['telescope_pupil'] * np.exp(1j * wf_error_to_retrieve.ravel()), #or flatten
                    seal_parameters['wavelength_meter'])
-    wf_focused_intensity = wf_focused.intensity
-    wf_focused_phase = wf_focused.phase
-    pupil_image = wf_focused.copy()
-    pupil_image.electric_field = np.exp(complex(0, 1)*
-                                        telescope_pupil.shaped*(simulation_elements['zernike_sample_256'][5]))
-    #(phase_unwrap_2d(pupil_image.phase))
-    #plt.colorplt.imshobar()
-    #plt.title(f'Original Error injected')
     
-    #assert simulation_elements['telescope_pupil'].shape == wf_error_to_retrieve.shape, \
-    "Wavefront error and telescope pupil shape mismatch"
-    #.intensity gives us our actual image, and .shaped formats it into an ndarray in order to pass to FDPR
-    return wf_focused_intensity.shaped, wf_focused_phase, wf_focused
-    
+    wf_focused= prop2f(wf_focused_pupil)
+    wf_focused_intensity = wf_focused.intensity.shaped #This is what will be getting passed into psf_list
+    wf_pupil_phase = wf_focused_pupil.phase #This will be used in Phase Calculations
+
+    return wf_focused_intensity, wf_pupil_phase, wf_focused
 
 def simulate_defocused_image(defocus_phase,
                              wf_error_to_retrieve, 
