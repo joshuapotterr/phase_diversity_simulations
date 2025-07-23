@@ -299,7 +299,7 @@ def make_cost_functions_plots(cost_functions, filename='Jul_9.jpg'):
     #before starting new plot, use plt.clf to clear and it doesnt overlap
     plt.clf()
 
-def run_phase_retrieval(system_truth_intensity,
+def run_phase_retrieval(system_truth_phase,
                         defocus_dictionary, 
                         seal_parameters,
                         num_iterations=200):
@@ -334,25 +334,31 @@ def run_phase_retrieval(system_truth_intensity,
     - The focused PSF is prepended to the list of PSFs as a reference.
     - The returned cost_functions can be used to assess convergence.
     """
-
-    distance_list = list(defocus_dictionary.keys()) 
-    #could use sorted here instead, psfs and sitances may mismatch unless order
-    #is guaranteed by construction
-
-    #This needs to get passed ONLY numpy arrays, it checks the first element of psf_list and uses its shape to construct the starting guess
-    psf_list = [system_truth_intensity] +[defocus_dictionary[key] for key in distance_list]
-    print('psf_list:',psf_list)
-    print('type of psf_list', type(psf_list))
-    dx_list= [seal_parameters['image_dx'] for key in distance_list]
-    #consider asserting, "assert all(isinstance(seal_parameters['image_dx'], (float, int)))
-
-    mp= FocusDiversePhaseRetrieval(psflist= psf_list,
-                                   wvl= seal_parameters['wavelength_micron'], #JARENS NOT IN METER
-                                   dxs =dx_list, 
-                                   defocus_positions= distance_list)
-
-    for i in range(num_iterations):
-            psf_estimate = mp.step() ##does this for loop overwrite psf_estimate each time
+    try:
+        distance_list = list(defocus_dictionary.keys()) 
+        #could use sorted here instead, psfs and sitances may mismatch unless order
+        #is guaranteed by construction
+    
+        #This needs to get passed ONLY numpy arrays, it checks the first element of psf_list and uses its shape to construct the starting guess
+        system_truth_phase=system_truth_phase.shaped
+        print(f'system_truth_phase type in run_phase_retrieval: {system_truth_phase.shape}')
+        psf_list = [system_truth_phase] +[defocus_dictionary[key] for key in distance_list]
+        print('psf_list:',psf_list)
+        print('type of psf_list', type(psf_list))
+        dx_list= [seal_parameters['image_dx'] for key in distance_list]
+        #consider asserting, "assert all(isinstance(seal_parameters['image_dx'], (float, int)))
+    
+        mp= FocusDiversePhaseRetrieval(psflist= psf_list,
+                                       wvl= seal_parameters['wavelength_micron'], #JARENS NOT IN METER
+                                       dxs =dx_list, 
+                                       defocus_positions= distance_list)
+    
+        for i in range(num_iterations):
+                psf_estimate = mp.step() ##does this for loop overwrite psf_estimate each time
+    except Exception as e: 
+        traceback.print_exc()
+        logger.critical("error in init iterator:%s",e)
+        raise
     return psf_estimate, mp.cost_functions
 
 def calculate_phase_retrieval_accuracy(
