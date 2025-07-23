@@ -252,7 +252,15 @@ def check_phase_estimate(system_truth_phase, phase_estimate,masking_pupil):
     mask = np.array(masking_pupil.shaped, dtype =bool)# Apply mask to non-zero phase region
     #implement med_subtracted, ie passing the dictionary will help with this(pupil_phase - median blah blah)
     print(f'system_truth_phase type in check_phase_estimate: {system_truth_phase.shape}')
-    difference_true_vs_estimate = (system_truth_phase - phase_estimate) #Compute difference
+    med_subtracted = phase_estimate - np.median(phase_estimate[mask])
+    
+    plt.figure()
+    plt.imshow(system_truth_phase.shaped - med_subtracted)
+    plt.title('med subtracted of pupil phase')
+    plt.colorbar()
+    plt.show()
+    
+    difference_true_vs_estimate = (system_truth_phase.shaped - phase_estimate) #Compute difference
     difference_masked = difference_true_vs_estimate[mask]
     rms_error = np.sqrt(np.mean(difference_masked ** 2))
     ##do i want difference_masked? 
