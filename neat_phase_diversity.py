@@ -745,6 +745,16 @@ def simulate_phase_diversity_grid(wf_error_to_retrieve,
     system_truth_intensity, system_truth_phase, system_truth = simulate_focused_image(wf_error_to_retrieve,
                                           simulation_elements,
                                           wavelength) 
+    #Shape here is (512,512), so need to resize to 256,256 for psf_list input
+    system_truth_intensity = resize(system_truth_intensity, (256,256))
+
+    #PLot the relevant focused images
+    plt.imshow(system_truth_intensity)
+    plt.title('system_truth_intensity')
+    plt.show()
+    plt.imshow(system_truth_phase.shaped)#this will be the pupil plane phase
+    plt.title('system_truth_phase')
+    plt.show()
 
     ##Step2: empty error grid
     dim = seal_parameters['grid_dim'] 
