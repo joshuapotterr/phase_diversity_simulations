@@ -544,8 +544,9 @@ def simulate_defocused_image(defocus_phase,
     #Use dictionary again
     
     aberration_to_impart = wf_error_to_retrieve + defocus_phase
+    #Worth to note to plt.imshow this
 
-    wavefront_defocused = Wavefront(simulation_elements['telescope_pupil'] * np.exp(1j * aberration_to_impart.flatten()),
+    wavefront_defocused = Wavefront(simulation_elements['telescope_pupil'] * np.exp(1j * aberration_to_impart.ravel()),
                            seal_parameters['wavelength_meter'])
     #assert aberration_to_impart.shape == simulation_elements['telescope_pupil'].shape
 
@@ -627,7 +628,7 @@ def calculate_defocus_phase(seal_parameters,
 
 
 
-def focus_diverse_phase_retrieval(system_truth,
+def focus_diverse_phase_retrieval(system_truth_intensity,
                                   phase_diverse_information, 
                                   wf_error_to_retrieve,  
                                   seal_parameters,
@@ -686,7 +687,7 @@ def focus_diverse_phase_retrieval(system_truth,
 
         #run it
     psf_estimate, cost_functions = run_phase_retrieval(
-            system_truth,
+            system_truth_intensity,
             defocus_psfs,
             seal_parameters
         )
