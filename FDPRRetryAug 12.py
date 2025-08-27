@@ -86,7 +86,7 @@ focal_image = prop_p2f.forward(wavefront)
 #imshow_field(np.log10(focal_image.intensity / focal_image.intensity.max()), vmin=-5)
 perfect_focal = focal_image.copy()
 defocus_template = zernike_modes[3]
-error_to_retrieve = -.75 * zernike_modes[6]
+error_to_retrieve = 0
 #Testing from ipynb, confirm for Defocus/coma. CONFIRMED
 #imshow_field(error_to_retrieve)
 #plt.colorbar()
@@ -95,7 +95,7 @@ error_to_retrieve = -.75 * zernike_modes[6]
 Now I will Simulate a Focused Image, using Wavefront object
 We will use the .intensity and .phase attributes of the wavefront
 '''
-focused_wavefront_pupil = Wavefront(telescope_pupil * np.exp(1j * error_to_retrieve.ravel()), #or flatten
+focused_wavefront_pupil = Wavefront(telescope_pupil * np.exp(1j), #or flatten
                    seal_parameters['wavelength_meter'])
 focused_wavefront_focal = prop_p2f(focused_wavefront_pupil)
 #Testing to see System truth, confirm. CONFIRMED
