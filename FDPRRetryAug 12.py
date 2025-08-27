@@ -137,7 +137,7 @@ for dz_mm in defocus_mm_list:
     defocus_phase = calculate_defocus_phase(seal_parameters, dz_mm)  # radians on pupil grid
 
     wf_pupil_defocused = Wavefront(
-        telescope_pupil * np.exp(1j * (error_to_retrieve.ravel() + defocus_phase.ravel())),
+        telescope_pupil * np.exp(1j * (defocus_phase.ravel())),
         seal_parameters['wavelength_meter']
     )
     wf_focal_defocused = prop_p2f(wf_pupil_defocused)
@@ -247,7 +247,7 @@ try:
 
         n_iter_grid = 80
 
-        truth_pupil = (error_to_retrieve.shaped * telescope_pupil.shaped)
+        truth_pupil = (telescope_pupil.shaped)
         mask = np.array(telescope_pupil.shaped, dtype=bool)
         rad2nm = seal_parameters['wavelength_meter'] / (2*np.pi) * 1e9
         data = np.random.rand(10,10, 256, 256)
@@ -262,21 +262,21 @@ try:
 
                 # Focused (0 mm)
                 phi0 = calculate_defocus_phase(seal_parameters, 0.0)
-                wf0 = Wavefront(telescope_pupil * np.exp(1j * (error_to_retrieve + phi0)),
+                wf0 = Wavefront(telescope_pupil * np.exp(1j * (phi0)),
                                 seal_parameters['wavelength_meter'])
                 psf0 = np.asarray(prop_p2f(wf0).intensity.shaped)
                 psf_list_pair.append(psf0)
 
                 # Defocus 1
                 phi1 = calculate_defocus_phase(seal_parameters, dz1_mm)
-                wf1 = Wavefront(telescope_pupil * np.exp(1j * (error_to_retrieve + phi1)),
+                wf1 = Wavefront(telescope_pupil * np.exp(1j * (phi1)),
                                 seal_parameters['wavelength_meter'])
                 psf1 = np.asarray(prop_p2f(wf1).intensity.shaped)
                 psf_list_pair.append(psf1)
 
                 # Defocus 2
                 phi2 = calculate_defocus_phase(seal_parameters, dz2_mm)
-                wf2 = Wavefront(telescope_pupil * np.exp(1j * (error_to_retrieve + phi2)),
+                wf2 = Wavefront(telescope_pupil * np.exp(1j * (phi2)),
                                 seal_parameters['wavelength_meter'])
                 psf2 = np.asarray(prop_p2f(wf2).intensity.shaped)
                 psf_list_pair.append(psf2)
