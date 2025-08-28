@@ -236,8 +236,71 @@ try:
     '''
     Grid Logic
     '''    
-    gridsweep = True
-    if gridsweep: 
+
+    '''
+    1d Grid Logic
+    '''  
+    oned_grid= True  
+    if oned_grid:
+        truth_pupil = (telescope_pupil.shaped)
+        mask = np.array(telescope_pupil.shaped, dtype=bool)
+        dz_1d = 5e-3 #5mm defocus
+        defocus_phase = calculate_defocus_phase(seal_parameters, dz_1d)
+        wf_focused = Wavefront(
+            telescope_pupil * np.exp(1j*0), #or flatten
+            seal_parameters['wavelength_meter'])
+        
+        wf_aberrated = Wavefront(
+            telescope_pupil * np.exp(1j * (defocus_phase.ravel())),
+            seal_parameters['wavelength_meter'])
+        psf_focused = prop_p2f(wf_focused).intensity.shaped
+        psf_defocused = prop_p2f(wf_aberrated).intensity.shaped
+        psf_list_1d = [psf_focused, psf_defocused]
+        dx_list_1d = [seal_parameters['image_dx']]
+        defocus_list_1d = [dz_1d]
+        mp_1d = FocusDiversePhaseRetrieval(
+            psf_list_1d,
+            seal_param_config['wavelength'],
+            dx_list_1d,
+            defocus_list_1d
+        )
+        n_iter_1d= 200
+        for _ in range(n_iter_1d):
+            retrieval_1d = mp_1d.step()
+
+        raw_pupil_phase = np.angle(mft_rev(retrieval_1d, conf))
+
+        if raw_pupil_phase.ndim == 1:
+            raw_pupil_phase = raw_pupil_phase.reshape(telescope_pupil.shaped.shape)
+
+                # Resize to pupil grid if needed and mask
+        pupil_phase_rec = resize(raw_pupil_phase, (256, 256), preserve_range=True) * telescope_pupil.shaped
+        rec_masked = pupil_phase_rec[mask].copy()
+        rec_masked -= np.median(rec_masked)
+
+        truth_masked = truth_pupil[mask]
+
+        rms_rad = np.sqrt(np.mean((rec_masked - truth_masked)**2))
+        p2v_error = np.max(pupil_phase_rec) - np.min(pupil_phase_rec)
+        fig, axs = plt.subplots(1, 3, figsize=(12, 4))
+        axs[0].imshow(np.log10(psf_focused / psf_focused.max()), vmin=-5)
+        axs[0].set_title("Focused PSF")
+
+        axs[1].imshow(np.log10(psf_defocused / psf_defocused.max()), vmin=-5)
+        axs[1].set_title(f"Defocused PSF (Δz={dz_1d*1e3:.2f} mm)")
+
+        axs[2].imshow(pupil_phase_rec, cmap='RdBu')
+        axs[2].set_title("Retrieved Phase")
+
+        for ax in axs:
+            ax.axis('off')
+        plt.tight_layout()
+        plt.show()
+    else:
+        None
+        
+    twod_gridsweep = False
+    if twod_gridsweep: 
         # Sweep over defocus in mm
         dim = seal_parameters['grid_dim']  # 10
         defocus_mm_vals = np.linspace(-10.0, 10.0, dim)  # mm
