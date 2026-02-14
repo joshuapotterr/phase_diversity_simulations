@@ -1,0 +1,371 @@
+
+# OTF-based analysis of sinusoidal aberrations
+
+import numpy as np
+from hcipy import *
+import matplotlib.pyplot as plt
+
+
+'''
+CONFIGURATION FLAGS/STARTUP
+'''
+verbose = True  # If True, plot step by step
+save_label = "OTF_heatmap_data_new_block.npz"
+dzs_otf = np.linspace(5, 250, 80)      # mm
+v0s_otf = np.linspace(0.5, 80, 150)    # cycles/aperture
+
+
+'''
+HELPER FUNCTIONS
+'''
+def mm_to_m(x_mm: float) -> float:
+    return x_mm * 1e-3
+
+def delta_to_p(delta, f, D):
+    return -1 * delta / (8 * (f/D)**2)
+
+def make_sinusoidal_phase_waves(pupil_grid, pupil_diameter_m, cycles_per_aperture, m_waves):
+    """
+    Single-frequency sinusoid along x. 'cycles/aperture' means cycles across diameter D.
+    Returns HCIPy Field [waves] on pupil_grid.
+    """
+    x = pupil_grid.x
+    D = pupil_diameter_m
+    phase_waves = m_waves * np.sin(2 * np.pi * cycles_per_aperture * (x / D))
+    return Field(phase_waves, pupil_grid)
+
+def psf_from_wavefront(wf, propagator):
+    """
+    Propagate wavefront to focal plane and return PSF intensity.
+    """
+    I = propagator(wf).intensity.shaped
+    return np.asarray(I)
+
+def calculate_defocus_phase(seal_parameters, defocus_distance, telescope_pupil, defocus_template):
+    """
+    Calculate defocus phase from mechanical defocus distance.
+    defocus_distance should be in MM.
+    """
+    mask = np.array(telescope_pupil.shaped, dtype=bool)
+    defocus_template_s = defocus_template.shaped
+    template_p2v = defocus_template_s[mask].max() - defocus_template_s[mask].min()
+    unit_defocus = defocus_template / template_p2v
+    dz_m = mm_to_m(defocus_distance)
+    defocus_p2v = delta_to_p(
+        delta=dz_m,
+        f=seal_parameters['focal_length_meters'],
+        D=seal_parameters['pupil_size']
+    )
+    phase_p2v = defocus_p2v * (2*np.pi/seal_parameters['wavelength_meter'])
+    defocus_phase = unit_defocus * phase_p2v
+    return defocus_phase
+
+def otf_from_psf_numpy(psf):
+    """
+    Compute OTF magnitude from PSF.
+    OTF is the Fourier transform of the PSF.
+    """
+    OTF = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(psf)))
+    mag = np.abs(OTF)
+    return mag
+
+def find_otf_sidepeaks_1D(OTF, kill_core_pix=9, subpixel=True):
+    """
+    Find the two symmetric side peaks in the OTF from a 1D sinusoidal aberration.
+    Look along the central horizontal row (y=0).
+    
+    Returns
+    -------
+    offset : float
+        Average pixel distance of side-peaks from DC
+    amp : float
+        Average peak amplitude
+    offs_lr : tuple
+        (left offset, right offset)
+    amps_lr : tuple
+        (left amplitude, right amplitude)
+    """
+    row = OTF[OTF.shape[0] // 2, :].copy()
+    c = len(row) // 2
+    row[c-kill_core_pix:c+kill_core_pix+1] = 0.0
+    left, right = row[:c], row[c+1:]
+    il, ir = int(np.argmax(left)), int(np.argmax(right))
+    amp_l, amp_r = float(left[il]), float(right[ir])
+
+    def refine(i, a):
+        if not subpixel or i <= 0 or i >= len(a)-1:
+            return float(i)
+        y0, y1, y2 = a[i-1], a[i], a[i+1]
+        d = (y0 - 2*y1 + y2)
+        return i + 0.5*(y0 - y2)/d if d != 0 else float(i)
+
+    pos_l = refine(il, left)
+    pos_r = refine(ir, right) + c + 1
+    off_l = -(c - pos_l)
+    off_r = (pos_r - c)
+    offset = 0.5*(abs(off_l) + abs(off_r))
+    amp = 0.5*(amp_l + amp_r)
+    return float(offset), float(amp), (float(off_l), float(off_r)), (amp_l, amp_r)
+
+
+def plot_otf_analysis(psf, otf, v0, dz_mm, title_prefix=""):
+    """
+    Plot PSF and its OTF with side-peak analysis.
+    """
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+    
+    # PSF
+    ax = axes[0]
+    im = ax.imshow(np.log10(psf + 1e-10), vmin=-5, cmap='inferno')
+    ax.set_title(f'{title_prefix}PSF (log10)\ndz={dz_mm:.1f}mm, v0={v0:.2f}')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    # OTF full
+    ax = axes[1]
+    im = ax.imshow(otf, cmap='viridis')
+    ax.set_title(f'{title_prefix}OTF Magnitude')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    # OTF central row
+    ax = axes[2]
+    row = otf[otf.shape[0] // 2, :]
+    ax.plot(row)
+    ax.set_xlabel('Pixel')
+    ax.set_ylabel('OTF Amplitude')
+    ax.set_title('OTF Central Row')
+    ax.grid(True, alpha=0.3)
+    
+    # Mark side peaks
+    offset, amp, offs_lr, amps_lr = find_otf_sidepeaks_1D(otf, kill_core_pix=9)
+    c = len(row) // 2
+    ax.axvline(c + offs_lr[0], color='r', linestyle='--', label=f'Left peak: {amps_lr[0]:.0f}')
+    ax.axvline(c + offs_lr[1], color='g', linestyle='--', label=f'Right peak: {amps_lr[1]:.0f}')
+    ax.legend()
+    
+    plt.tight_layout()
+    plt.show()
+    
+    return offset, amp
+
+
+'''
+DEFINING PARAMETERS
+'''
+seal_parameters = {
+    'image_dx': 2.0071,
+    'efl': 500,
+    'wavelength_meter': 650e-9,
+    'pupil_size': 10.12e-3,
+    'small_pupil_size_meter': 9.5e-3,
+    'pupil_pixel_dimension': 256,
+    'focal_length_meters': 500e-3,
+    'q': 4,
+    'Num_airycircles': 64,
+    'grid_dim': 10
+}
+
+# Build simulation elements
+pupil_grid = make_pupil_grid(256, seal_parameters['pupil_size'])
+focal_grid = make_focal_grid(
+    q=seal_parameters['q'],
+    num_airy=seal_parameters['Num_airycircles'],
+    pupil_diameter=seal_parameters['pupil_size'],
+    focal_length=seal_parameters['focal_length_meters'],
+    reference_wavelength=seal_parameters['wavelength_meter']
+)
+aperture = make_circular_aperture(seal_parameters['pupil_size'])
+telescope_pupil = aperture(pupil_grid)
+prop_p2f = FraunhoferPropagator(pupil_grid, focal_grid, seal_parameters['focal_length_meters'])
+
+zernike_modes = make_zernike_basis(
+    num_modes=256,
+    D=seal_parameters['pupil_size'],
+    grid=pupil_grid
+)
+defocus_template = zernike_modes[3]
+
+
+'''
+OTF GRID PARAMETERS
+'''
+
+m_waves = 0.10  # Peak amplitude of sinusoid in waves
+D_m = seal_parameters['pupil_size']
+lam_m = seal_parameters['wavelength_meter']
+
+Nd, Nv = len(dzs_otf), len(v0s_otf)
+
+print(f"\n{'='*50}")
+print(f"OTF Analysis Configuration:")
+print(f"  Grid size: {Nd} x {Nv} = {Nd*Nv} points")
+print(f"  dz range: {dzs_otf.min():.1f} - {dzs_otf.max():.1f} mm")
+print(f"  v0 range: {v0s_otf.min():.1f} - {v0s_otf.max():.1f} cycles/ap")
+print(f"  m_waves: {m_waves}")
+print(f"{'='*50}\n")
+
+
+'''
+STORAGE ARRAYS
+'''
+# OTF amplitudes
+otf_amp_focus = np.full((Nd, Nv), np.nan)    # focused PSF
+otf_amp_defoc = np.full((Nd, Nv), np.nan)    # defocused PSF
+
+# OTF peak offsets (in pixels)
+otf_offset_focus = np.full((Nd, Nv), np.nan)
+otf_offset_defoc = np.full((Nd, Nv), np.nan)
+
+
+'''
+OTF CALCULATION LOOP
+'''
+print("Computing OTF heatmap...")
+
+for i, dz in enumerate(dzs_otf):
+    dz_mm = float(dz)
+    phi_def = calculate_defocus_phase(seal_parameters, dz_mm, telescope_pupil, defocus_template)
+    
+    for j, v0 in enumerate(v0s_otf):
+        if v0 == 0:
+            continue
+
+        # Create sinusoidal aberration
+        phi_sine_waves = make_sinusoidal_phase_waves(pupil_grid, D_m, float(v0), m_waves)
+        phi_sine_rad = 2 * np.pi * phi_sine_waves
+
+        # Generate PSFs
+        wf_focus = Wavefront(telescope_pupil * np.exp(1j * phi_sine_rad), lam_m)
+        psf_focus = psf_from_wavefront(wf_focus, prop_p2f)
+
+        wf_defoc = Wavefront(telescope_pupil * np.exp(1j * (phi_sine_rad + phi_def)), lam_m)
+        psf_defoc = psf_from_wavefront(wf_defoc, prop_p2f)
+
+        # Compute OTFs
+        try:
+            otf_focus = otf_from_psf_numpy(psf_focus)
+            offset, amp, _, _ = find_otf_sidepeaks_1D(otf_focus, kill_core_pix=9)
+            otf_amp_focus[i, j] = amp
+            otf_offset_focus[i, j] = offset
+
+            otf_defoc = otf_from_psf_numpy(psf_defoc)
+            offset, amp, _, _ = find_otf_sidepeaks_1D(otf_defoc, kill_core_pix=9)
+            otf_amp_defoc[i, j] = amp
+            otf_offset_defoc[i, j] = offset
+
+            # Verbose plotting for selected points
+            if verbose and i % 20 == 0 and j % 30 == 0:
+                plot_otf_analysis(psf_defoc, otf_defoc, v0, dz_mm, "Defocused ")
+
+        except Exception as e:
+            print(f"OTF error at dz={dz:.1f}, v0={v0:.1f}: {e}")
+            continue
+
+    if (i + 1) % 10 == 0:
+        print(f"Done dz index {i+1}/{Nd}")
+
+print("OTF calculation complete.")
+
+
+'''
+SAVE RESULTS
+'''
+np.savez(save_label,
+         dzs_otf=dzs_otf,
+         v0s_otf=v0s_otf,
+         otf_amp_focus=otf_amp_focus,
+         otf_amp_defoc=otf_amp_defoc,
+         otf_offset_focus=otf_offset_focus,
+         otf_offset_defoc=otf_offset_defoc,
+         # For backwards compatibility with your old naming
+         H=otf_amp_defoc,
+         fixed_dz_heatmap=dzs_otf,
+         v0_heatmap=v0s_otf,
+         m_waves=m_waves)
+print(f"Saved: {save_label}")
+
+
+'''
+PLOTTING
+'''
+extent_otf = [v0s_otf.min(), v0s_otf.max(), dzs_otf.min(), dzs_otf.max()]
+
+# Defocused OTF amplitude heatmap (this is the main one you want)
+plt.figure(figsize=(10, 8))
+finite_vals = otf_amp_defoc[np.isfinite(otf_amp_defoc)]
+if len(finite_vals) > 0:
+    vmin, vmax = np.nanpercentile(finite_vals, [2, 98])
+    plt.imshow(otf_amp_defoc, origin='lower', aspect='auto', extent=extent_otf,
+               cmap='viridis', vmin=vmin, vmax=vmax)
+else:
+    plt.imshow(otf_amp_defoc, origin='lower', aspect='auto', extent=extent_otf, cmap='viridis')
+plt.colorbar(label="OTF side-peak amplitude")
+plt.xlabel("v0 [cycles/ap]")
+plt.ylabel("dz [mm]")
+plt.title("OTF Heatmap (Defocused PSF)")
+plt.tight_layout()
+plt.show()
+
+# Focused OTF amplitude heatmap
+plt.figure(figsize=(10, 8))
+finite_vals = otf_amp_focus[np.isfinite(otf_amp_focus)]
+if len(finite_vals) > 0:
+    vmin, vmax = np.nanpercentile(finite_vals, [2, 98])
+    plt.imshow(otf_amp_focus, origin='lower', aspect='auto', extent=extent_otf,
+               cmap='viridis', vmin=vmin, vmax=vmax)
+else:
+    plt.imshow(otf_amp_focus, origin='lower', aspect='auto', extent=extent_otf, cmap='viridis')
+plt.colorbar(label="OTF side-peak amplitude")
+plt.xlabel("v0 [cycles/ap]")
+plt.ylabel("dz [mm]")
+plt.title("OTF Heatmap (Focused PSF)")
+plt.tight_layout()
+plt.show()
+
+# Ratio: defocused / focused (shows how much signal survives defocus)
+plt.figure(figsize=(10, 8))
+ratio = otf_amp_defoc / otf_amp_focus
+finite_vals = ratio[np.isfinite(ratio)]
+if len(finite_vals) > 0:
+    vmin, vmax = np.nanpercentile(finite_vals, [2, 98])
+    plt.imshow(ratio, origin='lower', aspect='auto', extent=extent_otf,
+               cmap='RdBu_r', vmin=0, vmax=2)
+else:
+    plt.imshow(ratio, origin='lower', aspect='auto', extent=extent_otf, cmap='RdBu_r')
+plt.colorbar(label="OTF ratio (defoc/focus)")
+plt.xlabel("v0 [cycles/ap]")
+plt.ylabel("dz [mm]")
+plt.title("OTF Transfer Ratio (Defocused / Focused)")
+plt.tight_layout()
+plt.show()
+
+# Slice plots at fixed defocus values
+dz_slices = [25, 50, 100, 150, 200]
+plt.figure(figsize=(10, 6))
+for dz_target in dz_slices:
+    idx = np.argmin(np.abs(dzs_otf - dz_target))
+    plt.plot(v0s_otf, otf_amp_defoc[idx, :], label=f'dz={dzs_otf[idx]:.0f} mm')
+plt.xlabel("v0 [cycles/ap]")
+plt.ylabel("OTF side-peak amplitude")
+plt.title("OTF Amplitude vs Spatial Frequency (at fixed defocus)")
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+# Slice plots at fixed spatial frequencies
+v0_slices = [5, 10, 20, 40, 60]
+plt.figure(figsize=(10, 6))
+for v0_target in v0_slices:
+    idx = np.argmin(np.abs(v0s_otf - v0_target))
+    plt.plot(dzs_otf, otf_amp_defoc[:, idx], label=f'v0={v0s_otf[idx]:.1f} cyc/ap')
+plt.xlabel("dz [mm]")
+plt.ylabel("OTF side-peak amplitude")
+plt.title("OTF Amplitude vs Defocus (at fixed spatial frequency)")
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+print("\nOTF analysis complete!")
