@@ -1,0 +1,42 @@
+# Data outputs (large, regeneratable)
+*.npz
+*.npy
+*.fits
+*.fit
+
+# Generated figures
+paper_figures_real/
+paper_figures/*.pdf
+paper_figures/*.png
+*.eps
+
+# Run output directories
+fdpr_dense_results/
+fdpr_optimization/
+
+# Log files
+*.log
+*.bak
+
+# Python cruft
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Notebook checkpoints (but DO commit the notebooks themselves with outputs)
+.ipynb_checkpoints/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Large slide decks
+*.pptx
+*.key

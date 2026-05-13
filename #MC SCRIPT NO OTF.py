@@ -1,0 +1,866 @@
+#MC SCRIPT NO OTF
+import time
+import numpy as np
+from skimage.transform import resize
+from hcipy import *
+from image_sharpening import FocusDiversePhaseRetrieval, mft_rev, InstrumentConfiguration
+import matplotlib.pyplot as plt
+#from testing_functions import my_fdpr 
+
+
+'''
+CONFIGURATION FLAGS
+'''
+# Verbose: plot first and last trial for EVERY grid point
+verbose = True
+
+# Spot check: detailed 4x4 plot at a SINGLE (dz, v0) point (finds nearest)
+do_spot_check = False
+
+#if we want noise or if we want clean
+if_noise=False
+seal_parameters = {
+        'image_dx': 2.0071, # pixel image 
+        'efl': 500, # SEAL effective focal length, mm # SEAL center wavelength, microns- >prysm
+        'wavelength_meter': 650e-9,#SEAL center wavelength, meters -> hcipy
+        'pupil_size': 10.12e-3, # Keck entrance pupil diameter
+        'small_pupil_size_meter': 9.5e-3,
+        'pupil_pixel_dimension': 256,
+        'focal_length_meters': 500e-3,
+        'q': 16,
+        'Num_airycircles': 16,
+        'grid_dim':10
+         }
+
+spot_check_dz = 100.0     # mm - defocus for spot check (will find nearest)
+spot_check_v0 = 3.0       # cycles/ap - spatial frequency for spot check (will find nearest)
+
+'''
+MONTE CARLO PARAMETERS
+'''
+dzs_mc = np.linspace(5, 250, 3)      # mm
+#dzs_mc = (13,-7)
+v0s_mc = np.linspace(0.5, 30, 3)     # cycles/aperture
+
+N_trials = 1
+sigma_e = 11
+seed = 12345
+num_photons = 1e6
+rng = np.random.default_rng(seed)
+save_label = "MC_3x3_jaren_workshop_no_noise_no_aberration.npz"
+
+'''
+HELPER FUNCTIONS
+'''
+def mm_to_m(x_mm: float) -> float:
+    return x_mm * 1e-3
+
+def mm_to_um(x_mm: float) -> float:
+    return x_mm * 1e3
+
+def delta_to_p(delta, f, D):
+    return -1 * delta / (8 * (f/D)**2)
+
+def make_sinusoidal_phase_waves(pupil_grid, pupil_diameter_m, cycles_per_aperture, m_waves):
+    """
+    Single-frequency sinusoid along x. 'cycles/aperture' means cycles across diameter D.
+    Returns HCIPy Field [waves] on pupil_grid.
+    """
+    x = pupil_grid.x
+    D = pupil_diameter_m
+    phase_waves = m_waves * np.sin(2 * np.pi * cycles_per_aperture * (x / D))
+    return Field(phase_waves, pupil_grid)
+
+def psf_from_wavefront(wf):
+    """Returns PSF in photons/pixel."""
+    I = prop_p2f(wf).power.shaped   # <-- change .intensity to .power
+    return np.asarray(I)
+
+def calculate_defocus_phase(seal_parameters, defocus_distance, telescope_pupil, defocus_template):
+    """
+    Calculate defocus phase from mechanical defocus distance.
+    defocus_distance should be in MM.
+    """
+    mask = np.array(telescope_pupil.shaped, dtype=bool)
+    defocus_template_s = defocus_template.shaped
+    template_p2v = defocus_template_s[mask].max() - defocus_template_s[mask].min()
+    unit_defocus = defocus_template / template_p2v
+    dz_m = mm_to_m(defocus_distance)
+    defocus_p2v = delta_to_p(
+        delta=dz_m,
+        f=seal_parameters['focal_length_meters'],
+        D=seal_parameters['pupil_size']
+    )
+    phase_p2v = defocus_p2v * (2*np.pi/seal_parameters['wavelength_meter'])
+    defocus_phase = unit_defocus * phase_p2v
+    return defocus_phase
+
+def add_read_noise(image_electron, sigma_e, rng):
+    read_noise = rng.normal(scale=sigma_e, size=image_electron.shape)
+    return image_electron + read_noise
+
+
+def plot_verbose_trial(dz_mm, v0, trial_idx, phi_sine_rad, phi_def, 
+                       psf_focus_clean, psf_defoc_clean, psf0, psfd,
+                       psf_reconstruction, real_pupil, telescope_pupil, seal_parameters):
+    """
+    Verbose plotting for first/last trial at each grid point.
+    Shows: injected phase, PSFs, reconstruction, and difference image.
+    2x4 grid layout.
+    """
+    mask = np.array(telescope_pupil.shaped, dtype=bool)
+    
+    pupil_phase = real_pupil
+    pupil_image_phase = phi_sine_rad.shaped
+    
+    med_subtracted = pupil_phase - np.median(pupil_phase[mask])
+    difference_image = pupil_image_phase - med_subtracted
+    check_error_region = difference_image[mask]
+    
+    median_error = np.median(check_error_region)
+    rms_error = np.sqrt(np.nanmean(check_error_region**2))
+    rms_error_nm = rms_error * seal_parameters['wavelength_meter'] * 1e9 / (2*np.pi)
+    
+    fig, axes = plt.subplots(2, 4, figsize=(18, 9))
+    fig.suptitle(f'VERBOSE: dz={dz_mm:.1f} mm, v0={v0:.2f} cycles/ap, Trial {trial_idx}', fontsize=14)
+    
+    # Row 1: Inputs
+    ax = axes[0, 0]
+    im = ax.imshow(phi_sine_rad.shaped, cmap='RdBu_r')
+    ax.set_title('Injected Sinusoid [rad]')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    ax = axes[0, 1]
+    im = ax.imshow(np.log10(np.abs(psf_reconstruction) + 1e-10), vmin=-5, cmap='inferno')
+    ax.set_title('PSF Reconstruction post FDPR, log10 scale')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    ax = axes[0, 2]
+    im = ax.imshow(np.log10(psf0 + 1e-10), vmin=-5, cmap='inferno')
+    ax.set_title('Focused PSF (noisy, log10)')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    ax = axes[0, 3]
+    im = ax.imshow(np.log10(psfd + 1e-10), vmin=-5, cmap='inferno')
+    ax.set_title('Defocused PSF (noisy, log10)')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    # Row 2: Reconstruction and difference
+    ax = axes[1, 0]
+    im = ax.imshow(pupil_phase, cmap='RdBu_r')
+    ax.set_title('Reconstruction [rad]')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    ax = axes[1, 1]
+    im = ax.imshow(med_subtracted, cmap='RdBu_r')
+    ax.set_title('Recon (median sub) [rad]')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    ax = axes[1, 2]
+    im = ax.imshow(pupil_image_phase, cmap='RdBu_r')
+    ax.set_title('Truth [rad]')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    ax = axes[1, 3]
+    #vmax_diff = max(abs(np.nanmin(difference_image)), abs(np.nanmax(difference_image)), 0.01)
+    im = ax.imshow(difference_image, cmap='RdBu_r')
+    ax.set_title(f'Difference (truth - recon)\nRMS={rms_error_nm:.1f} nm')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    plt.tight_layout()
+    plt.show()
+    
+    print(f"  [Verbose] dz={dz_mm:.1f}, v0={v0:.2f}, trial={trial_idx}: "
+          f"Median error={median_error:.4f} rad, RMS={rms_error_nm:.1f} nm")
+
+
+def plot_spot_check_full(dz_mm, v0, phi_sine_rad, phi_def, psf_focus_clean, psf_defoc_clean,
+                         psf0, psfd, psf_reconstruction, real_pupil, 
+                         telescope_pupil, seal_parameters, trial_idx=0):
+    """
+    Full detailed plotting for a single (dz, v0) point.
+    
+    trying to match the original futzing here:
+
+        pupil_image.phase.shaped = phi_sine_rad.shaped (the truth/injected aberration)
+        pupil_phase = real_pupil (the FDPR reconstruction)
+    
+    4x4 grid:
+    Row 1: Injected sinusoid, defocus phase, combined phase, pupil mask
+    Row 2: Focused PSF (clean), Defocused PSF (clean), Focused PSF (noisy), Defocused PSF (noisy)
+    Row 3: FDPR output, Reconstruction, Reconstruction (median sub), Truth
+    Row 4: Truth, Difference image, Central row slice, Difference histogram
+    """
+    mask = np.array(telescope_pupil.shaped, dtype=bool)
+
+    # pupil_image.phase.shaped -> phi_sine_rad.shaped (truth)
+    # pupil_phase -> real_pupil (reconstruction)
+    
+    pupil_phase = real_pupil  # reconstruction
+    pupil_image_phase = phi_sine_rad.shaped  # truth (injected sinusoid)
+    
+    # Median subtraction on reconstruction
+    med_subtracted = pupil_phase - np.median(pupil_phase[mask])
+    
+    # Difference image: truth - median-subtracted reconstruction
+    difference_image = pupil_image_phase - med_subtracted
+    
+    # Error region within pupil
+    check_error_region = difference_image[mask]
+    
+    # Stats
+    median_error = np.median(check_error_region)
+    rms_error = np.sqrt(np.nanmean(check_error_region**2))
+    rms_error_nm = rms_error * seal_parameters['wavelength_meter'] * 1e9 / (2*np.pi)
+    
+    fig, axes = plt.subplots(4, 4, figsize=(18, 18))
+    fig.suptitle(f'SPOT CHECK: dz={dz_mm:.1f} mm, v0={v0:.2f} cycles/ap, Trial {trial_idx}', fontsize=16)
+    
+    # row 1: injected phases
+    ax = axes[0, 0]
+    im = ax.imshow(phi_sine_rad.shaped, cmap='RdBu_r')
+    ax.set_title('Injected Sinusoidal Phase [rad]\n(pupil_image.phase.shaped)')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    ax = axes[0, 1]
+    im = ax.imshow(phi_def.shaped, cmap='RdBu_r')
+    ax.set_title('Defocus Phase [rad]')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    ax = axes[0, 2]
+    combined = (phi_sine_rad + phi_def).shaped
+    im = ax.imshow(combined, cmap='RdBu_r')
+    ax.set_title('Combined Phase (sine + defocus) [rad]')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    ax = axes[0, 3]
+    im = ax.imshow(telescope_pupil.shaped, cmap='gray')
+    ax.set_title('Telescope Pupil Mask')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    #row 2: psfs
+    ax = axes[1, 0]
+    im = ax.imshow(np.log10(psf_focus_clean + 1e-10), vmin=-5, cmap='inferno')
+    ax.set_title('Focused PSF (clean, log10)')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    ax = axes[1, 1]
+    im = ax.imshow(np.log10(psf_defoc_clean + 1e-10), vmin=-5, cmap='inferno')
+    ax.set_title('Defocused PSF (clean, log10)')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    ax = axes[1, 2]
+    im = ax.imshow(np.log10(psf0 + 1e-10), vmin=-5, cmap='inferno')
+    ax.set_title('Focused PSF (noisy, log10)')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    ax = axes[1, 3]
+    im = ax.imshow(np.log10(psfd + 1e-10), vmin=-5, cmap='inferno')
+    ax.set_title('Defocused PSF (noisy, log10)')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    # row 3: reconstructions
+    ax = axes[2, 0]
+    im = ax.imshow((np.log10(psf_reconstruction) + 1e-10), vmin=-5, cmap='inferno')
+    ax.set_title('FDPR reconstructed psf |psf_rec| (log10)')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    ax = axes[2, 1]
+    im = ax.imshow(pupil_phase, cmap='RdBu_r')
+    ax.set_title('Reconstructed Pupil Phase [rad]\n(pupil_phase)')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    ax = axes[2, 2]
+    im = ax.imshow(med_subtracted, cmap='RdBu_r')
+    ax.set_title('Reconstruction (median sub) [rad]\n(med_subtracted)')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    ax = axes[2, 3]
+    im = ax.imshow(pupil_image_phase, cmap='RdBu_r')
+    ax.set_title('Truth [rad]\n(pupil_image.phase.shaped)')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    # ===== Row 4: Difference analysis =====
+    ax = axes[3, 0]
+    # Show truth masked by pupil
+    im = ax.imshow(pupil_image_phase * telescope_pupil.shaped, cmap='RdBu_r')
+    ax.set_title('Truth × Pupil Mask [rad]')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+    
+    ax = axes[3, 1]
+    # Difference image: pupil_image.phase.shaped - med_subtracted
+    vmax_diff = max(abs(np.nanmin(difference_image)), abs(np.nanmax(difference_image)), 0.01)
+    im = ax.imshow(difference_image, cmap='RdBu_r', vmin=-vmax_diff, vmax=vmax_diff)
+    ax.set_title(f'DIFFERENCE IMAGE\n(truth - med_subtracted)\nRMS = {rms_error_nm:.1f} nm')
+    plt.colorbar(im, ax=ax)
+    ax.axis('off')
+
+    ax = axes[3, 2]
+    # Histogram of error within pupil
+    valid_error = check_error_region[np.isfinite(check_error_region)]
+    if len(valid_error) > 0:
+        ax.hist(valid_error, bins=50, edgecolor='black', alpha=0.7, color='steelblue')
+        ax.axvline(0, color='r', linestyle='--', linewidth=2, label='Zero')
+        ax.axvline(median_error, color='orange', linestyle='-', linewidth=2, 
+                   label=f'Median={median_error:.4f}')
+    ax.set_xlabel('Error [rad]')
+    ax.set_ylabel('Count')
+    ax.set_title(f'Error Histogram (check_error_region)\nMedian={median_error:.4f} rad')
+    ax.legend(fontsize=8)
+    
+    plt.tight_layout()
+    plt.show()
+    
+    # nice lil summary type shit 
+    print(f"\n{'='*10}")
+    print(f"SPOT CHECK SUMMARY: dz={dz_mm:.1f} mm, v0={v0:.2f} cycles/ap, Trial {trial_idx}")
+    print(f"{'='*10}")
+    print(f"RMS error: {rms_error:.4f} rad = {rms_error_nm:.1f} nm")
+    print(f"  RMS error: {rms_error:.4f} rad = {rms_error_nm:.1f} nm")
+    print(f"  P2V error: {np.max(valid_error) - np.min(valid_error):.4f} rad")
+    print(f"{'='*10}\n")
+    
+    return rms_error_nm
+
+
+'''
+DEFINING PARAMETERS
+'''
+seal_parameters = {
+    'image_dx': 2.0071,
+    'efl': 500,
+    'wavelength_meter': 650e-9,
+    'pupil_size': 10.12e-3,
+    'small_pupil_size_meter': 9.5e-3,
+    'pupil_pixel_dimension': 256,
+    'focal_length_meters': 500e-3,
+    'q': 16,
+    'Num_airycircles': 16, #interchange with 64, original used 16
+    'grid_dim': 10,
+    'm_waves': 0.00
+}
+
+seal_param_config = {
+    'image_dx': 2.0071,
+    'efl': seal_parameters['focal_length_meters'] * 1e3,
+    'wavelength': 0.65,
+    'pupil_size': seal_parameters['pupil_size'] * 1e3,
+}
+
+# Build simulation elements
+conf = InstrumentConfiguration(seal_param_config)
+pupil_grid = make_pupil_grid(256, seal_parameters['pupil_size'])
+focal_grid = make_focal_grid(
+    q=seal_parameters['q'],
+    num_airy=seal_parameters['Num_airycircles'],
+    pupil_diameter=seal_parameters['pupil_size'],
+    focal_length=seal_parameters['focal_length_meters'],
+    reference_wavelength=seal_parameters['wavelength_meter']
+)
+aperture = make_circular_aperture(seal_parameters['pupil_size'])
+telescope_pupil = aperture(pupil_grid)
+prop_p2f = FraunhoferPropagator(pupil_grid, focal_grid, seal_parameters['focal_length_meters'])
+
+zernike_modes = make_zernike_basis(
+    num_modes=256,
+    D=seal_parameters['pupil_size'],
+    grid=pupil_grid
+)
+defocus_template = zernike_modes[3]
+
+'''
+sanity check, set defocus =0 in phase creation, use angular spectrum prop
+propgate focal plane e field a physical distance
+that is than the psf i supply to algorithm
+
+or:
+use equation in paper to find distance i need to get a wave of defocus -> before algorithm starts
+should be a hole in the PSF, not phase reconstruction
+
+apply a wave of dfocus->perfect destruvtice interference on PSF(look like a donut),
+    -> if zero light in middle conversion we good
+    ->if somehting else somehting else is going wrong
+code for sanity check is below this
+'''
+
+
+
+m_waves = seal_parameters['m_waves']  # Peak amplitude of sinusoid in waves, for debugging can be set to 0
+D_m = seal_parameters['pupil_size']
+lam_m = seal_parameters['wavelength_meter']
+f_m=seal_parameters['focal_length_meters']
+F=f_m/D_m
+
+#Doing Jarens Sanity Check here
+
+W020= 1.0
+L_one_wave_meter=8*W020*lam_m*F**2
+L_one_wave_mm = L_one_wave_meter *1e3
+print(f"Distance for 1 wave defocus: {L_one_wave_mm:.2f} mm")
+#I got 12.69mm
+
+
+pupil_mask = np.array(telescope_pupil.shaped > 0, dtype=bool)
+wavelength_um = seal_param_config['wavelength']
+
+Nd, Nv = len(dzs_mc), len(v0s_mc)
+
+
+
+# Find nearest spot check indices
+if do_spot_check:
+    spot_check_i = int(np.argmin(np.abs(dzs_mc - spot_check_dz)))
+    spot_check_j = int(np.argmin(np.abs(v0s_mc - spot_check_v0)))
+    actual_dz = dzs_mc[spot_check_i]
+    actual_v0 = v0s_mc[spot_check_j]
+else:
+    spot_check_i = -1
+    spot_check_j = -1
+
+# Time estimation
+time_per_sample = 4
+time_monte_carlo = Nd * Nv * time_per_sample * N_trials
+print(f"\n{'='*50}")
+print(f"Monte Carlo Configuration:")
+print(f"  Grid size: {Nd} x {Nv} = {Nd*Nv} points")
+print(f"  Trials per point: {N_trials}")
+print(f"  Read noise: {sigma_e} e-/px")
+print(f"  Estimated time: {time_monte_carlo / 3600:.2f} hours")
+print(f"  Verbose: {verbose}")
+if do_spot_check:
+    print(f"  Spot check: True")
+    print(f"    -> want a dz={spot_check_dz} mm, v0={spot_check_v0} cycles/ap")
+    print(f"    -> closest indice to it is dz={actual_dz:.1f} mm (idx={spot_check_i}), v0={actual_v0:.2f} cycles/ap (idx={spot_check_j})")
+else:
+    print(f"  Spot check: False")
+print(f"{'='*50}\n")
+
+
+'''
+STORAGE ARRAYS
+'''
+# Residual RMS (reconstruction - injected sinusoid) or other way around?
+rms_residual_trials = np.full((Nd, Nv, N_trials), np.nan)
+rms_residual_mean = np.full((Nd, Nv), np.nan)
+rms_residual_std = np.full((Nd, Nv), np.nan)
+
+# Total RMS (just the reconstruction magnitude)
+rms_total_trials = np.full((Nd, Nv, N_trials), np.nan)
+rms_total_mean = np.full((Nd, Nv), np.nan)
+rms_total_std = np.full((Nd, Nv), np.nan)
+
+convergence_rate = np.zeros((Nd, Nv))
+
+t0 = time.time()
+
+
+'''
+MONTE CARLO LOOP
+'''
+for i, dz in enumerate(dzs_mc):
+    dz_mm = float(dz)
+    phi_def = calculate_defocus_phase(seal_parameters, dz_mm, telescope_pupil, defocus_template)
+    
+    for j, v0 in enumerate(v0s_mc):
+        if v0 == 0:
+            continue
+
+        # Create sinusoidal aberration
+        phi_sine_waves = make_sinusoidal_phase_waves(pupil_grid, D_m, float(v0), m_waves)
+        phi_sine_rad = (2 * np.pi * phi_sine_waves)
+
+        # Generate clean PSFs
+        
+        # Generate clean PSFs
+        wf_focus = Wavefront(telescope_pupil * np.exp(1j * phi_sine_rad), lam_m)
+        wf_focus.total_power = num_photons  
+
+        wf_defoc = Wavefront(telescope_pupil * np.exp(1j * (phi_sine_rad + phi_def)), lam_m)
+        wf_defoc.total_power = num_photons  
+
+        psf_focus_clean = psf_from_wavefront(wf_focus)
+        psf_defoc_clean = psf_from_wavefront(wf_defoc)
+
+        plt.figure()
+        plt.imshow(np.log10(psf_defoc_clean/psf_defoc_clean.max()))
+        plt.colorbar()
+        plt.title('def')
+        plt.show()
+
+        plt.figure()
+        plt.imshow(np.log10(psf_focus_clean/psf_focus_clean.max()))
+        plt.colorbar()
+        plt.title('clean')
+        plt.show()
+
+
+        print(f"PSF sum: {psf_focus_clean.sum():.2e}, max: {psf_focus_clean.max():.2e}")
+
+
+        # NaN check
+        if not np.all(np.isfinite(psf_focus_clean)) or not np.all(np.isfinite(psf_defoc_clean)):
+            print(f"Non-finite clean PSF at dz={dz:.1f}, v0={v0:.1f} - skipping")
+            continue
+
+        # Check if this is the spot check point (using pre-computed indices)
+        is_spot_check = do_spot_check and (i == spot_check_i) and (j == spot_check_j)
+
+        n_converged = 0
+        trial_results_residual = []
+        trial_results_total = []
+
+       
+
+        for t in range(N_trials):
+            if if_noise:
+            # Add noise
+                psf0 = add_read_noise(psf_focus_clean, sigma_e, rng)
+                psfd = add_read_noise(psf_defoc_clean, sigma_e, rng)
+
+                psf0 = np.clip(psf0, 0, None)
+                psfd = np.clip(psfd, 0, None)
+            else:
+                # Temporarily bypass noise, debugging
+                psf0 = psf_focus_clean.copy()  # no noise
+                psfd = psf_defoc_clean.copy()  # no noise
+            
+            if not np.all(np.isfinite(psf0)) or not np.all(np.isfinite(psfd)):
+                print(f"Nans in the noisy PSF at dz={dz:.1f}, v0={v0:.1f}, trial={t}\
+                      probably want to fix that")
+                continue
+
+            try:
+                # Run FDPR
+                dz_um = mm_to_um(dz_mm)  # mm to µm
+                mp = FocusDiversePhaseRetrieval(
+                    [psf0, psfd], 
+                    wavelength_um, 
+                    [seal_parameters['image_dx']], 
+                    [dz_um]
+                )
+
+                for _ in range(150):
+                    psf_reconstruction = mp.step()
+                #this should be complex estimate of field
+                
+                '''
+                If we Want to find out the PSF reconstruction before it gets moved to pupil phase 
+                '''
+                
+                #plt.figure()
+                #plt.imshow(np.log10(np.abs(psf_reconstruction)**2 + 1e-10), vmin=-5, cmap='inferno')
+                #plt.colorbar(label='log10')
+                #plt.title('FDPR Reconstructed PSF')
+                #plt.show()
+                '''
+                amplitude is enforeced
+                pass amplitude, take sqr root for e field units, propagate, apply amp from defocus and prop back, repeat
+                '''
+
+                if psf_reconstruction is None or not np.any(np.isfinite(psf_reconstruction)):
+                    continue
+
+                # Reconstruct pupil phase
+                raw_pupil = np.angle(mft_rev(psf_reconstruction, conf)) ##this is where shit goes weird
+                
+                if not np.any(np.isfinite(raw_pupil)):
+                    continue
+
+                real_pupil = resize(raw_pupil, (256, 256)) * telescope_pupil.shaped
+                #consider subtracting defocus from reconstruction here maybe?
+               
+                # FDPR reconstructs the TOTAL pupil phase, not just the aberration i believe
+                # Since we fed it focused + defocused PSFs, the output includes the defocus diversity.
+                # should we subtract the known defocus to isolate just the aberration we want to measure maybe?
+                #real_pupil = real_pupil - phi_def.shaped * telescope_pupil.shaped
+
+                masked_phase = real_pupil[pupil_mask]
+
+                if not np.any(np.isfinite(masked_phase)):
+                    continue
+
+                # Get the injected sinusoidal phase as truth
+                truth_phase = phi_sine_rad.shaped * telescope_pupil.shaped
+                truth_masked = truth_phase[pupil_mask]
+
+                # Median subtraction on reconstruction (following futzing notebook)
+                reconstruction_median_subtracted = real_pupil - np.median(real_pupil[np.array(telescope_pupil.shaped, dtype=bool)])
+                reconstruction_median_subtracted_masked = reconstruction_median_subtracted[pupil_mask]
+                residual = truth_masked - reconstruction_median_subtracted_masked  # both (51468,)
+                rms_residual_rad = np.sqrt(np.nanmean(residual**2))
+
+                # Total RMS (magnitude of reconstruction)
+                rms_total_rad = np.sqrt(np.nanmean(masked_phase**2))
+
+                if not np.isfinite(rms_residual_rad) or not np.isfinite(rms_total_rad):
+                    continue
+
+                # Convert to nm
+                rms_residual_nm = rms_residual_rad * lam_m * 1e9 / (2*np.pi)
+                rms_total_nm = rms_total_rad * lam_m * 1e9 / (2*np.pi)
+
+                if np.isfinite(rms_residual_nm) and np.isfinite(rms_total_nm):
+                    rms_residual_trials[i, j, t] = rms_residual_nm
+                    rms_total_trials[i, j, t] = rms_total_nm
+                    trial_results_residual.append(rms_residual_nm)
+                    trial_results_total.append(rms_total_nm)
+                    n_converged += 1
+
+                    # Verbose plotting: first and last trial at every grid point
+                    if verbose and (t == 0 or t == N_trials - 1):
+                        plot_verbose_trial(
+                            dz_mm, v0, t, phi_sine_rad, phi_def,
+                            psf_focus_clean, psf_defoc_clean, psf0, psfd,
+                            psf_reconstruction, real_pupil, telescope_pupil, seal_parameters
+                        )
+
+                    # Spot check detailed plot (first trial only)
+                    if is_spot_check and t == 0:
+                        plot_spot_check_full(
+                            dz_mm, v0, phi_sine_rad, phi_def,
+                            psf_focus_clean, psf_defoc_clean,
+                            psf0, psfd, psf_reconstruction, real_pupil,
+                            telescope_pupil, seal_parameters, trial_idx=t
+                        )
+
+            except Exception as e:
+                print(f"FDPR error at dz={dz:.1f}, v0={v0:.1f}, trial={t}: {e}")
+                continue
+
+        # Store statistics
+        convergence_rate[i, j] = n_converged / N_trials
+
+        if len(trial_results_residual) > 0:
+            rms_residual_mean[i, j] = np.mean(trial_results_residual)
+            rms_residual_std[i, j] = np.std(trial_results_residual)
+        if len(trial_results_total) > 0:
+            rms_total_mean[i, j] = np.mean(trial_results_total)
+            rms_total_std[i, j] = np.std(trial_results_total)
+
+    # Progress
+    elapsed = time.time() - t0
+    rate = (i + 1) / elapsed if elapsed > 0 else 0
+    remaining = (Nd - i - 1) / rate if rate > 0 else 0
+    print(f"Done dz index {i+1}/{Nd} ({dz:.1f} mm) - "
+          f"elapsed: {elapsed/60:.1f} min, remaining: {remaining/60:.1f} min")
+
+elapsed = time.time() - t0
+print(f"\nMC finished in {elapsed/60:.2f} min")
+
+
+'''
+SUMMARY STATISTICS
+'''
+print(f"\n{'='*10}")
+print("MONTE CARLO TRIALS SUMMARY")
+print(f"{'='*10}")
+print(f"Grid shape: {Nd} dz x {Nv} v0")
+print(f"Trials per point: {N_trials}")
+
+valid_residual = np.sum(np.isfinite(rms_residual_trials))
+valid_total = np.sum(np.isfinite(rms_total_trials))
+print(f"Valid residual trials: {valid_residual} ({100*valid_residual/rms_residual_trials.size:.1f}%)")
+print(f"Valid total trials: {valid_total} ({100*valid_total/rms_total_trials.size:.1f}%)")
+
+valid_res_means = rms_residual_mean[np.isfinite(rms_residual_mean)]
+valid_tot_means = rms_total_mean[np.isfinite(rms_total_mean)]
+
+if len(valid_res_means) > 0:
+    print(f"\nResidual RMS statistics:")
+    print(f"  Mean: {np.mean(valid_res_means):.2f} nm")
+    print(f"  Std: {np.std(valid_res_means):.2f} nm")
+    print(f"  Range: {np.min(valid_res_means):.2f} - {np.max(valid_res_means):.2f} nm")
+
+if len(valid_tot_means) > 0:
+    print(f"\nTotal RMS statistics:")
+    print(f"  Mean: {np.mean(valid_tot_means):.2f} nm")
+    print(f"  Std: {np.std(valid_tot_means):.2f} nm")
+    print(f"  Range: {np.min(valid_tot_means):.2f} - {np.max(valid_tot_means):.2f} nm")
+
+print(f"{'='*10}\n")
+
+
+'''
+SAVE RESULTS
+'''
+np.savez(save_label,
+         dzs_mc=dzs_mc,
+         v0s_mc=v0s_mc,
+         rms_residual_trials=rms_residual_trials,
+         rms_residual_mean=rms_residual_mean,
+         rms_residual_std=rms_residual_std,
+         rms_total_trials=rms_total_trials,
+         rms_total_mean=rms_total_mean,
+         rms_total_std=rms_total_std,
+         convergence_rate=convergence_rate,
+         N_trials=N_trials,
+         sigma_e=sigma_e,
+         seed=seed,
+         m_waves=m_waves)
+print(f"Saved: {save_label}")
+
+
+'''
+PLOTTING
+'''
+extent_mc = [v0s_mc.min(), v0s_mc.max(), dzs_mc.min(), dzs_mc.max()]
+
+# Residual RMS heatmap
+plt.figure(figsize=(8, 6))
+finite_vals = rms_residual_mean[np.isfinite(rms_residual_mean)]
+if len(finite_vals) > 0:
+    vmin, vmax = np.nanpercentile(finite_vals, [5, 95])
+    plt.imshow(rms_residual_mean, origin='lower', aspect='auto', extent=extent_mc,
+               cmap='magma_r', vmin=vmin, vmax=vmax)
+else:
+    plt.imshow(rms_residual_mean, origin='lower', aspect='auto', extent=extent_mc, cmap='magma_r')
+plt.colorbar(label="Residual RMS [nm]")
+plt.xlabel("v0 [cycles/ap]")
+plt.ylabel("dz [mm]")
+plt.title("MC Residual RMS (Reconstruction - Truth)")
+plt.tight_layout()
+plt.show()
+
+# Total RMS heatmap
+plt.figure(figsize=(8, 6))
+finite_vals = rms_total_mean[np.isfinite(rms_total_mean)]
+if len(finite_vals) > 0:
+    vmin, vmax = np.nanpercentile(finite_vals, [5, 95])
+    plt.imshow(rms_total_mean, origin='lower', aspect='auto', extent=extent_mc,
+               cmap='magma_r', vmin=vmin, vmax=vmax)
+else:
+    plt.imshow(rms_total_mean, origin='lower', aspect='auto', extent=extent_mc, cmap='magma_r')
+plt.colorbar(label="Total RMS [nm]")
+plt.xlabel("v0 [cycles/ap]")
+plt.ylabel("dz [mm]")
+plt.title("MC Total RMS (Reconstruction Magnitude)")
+plt.tight_layout()
+plt.show()
+
+# Convergence rate
+plt.figure(figsize=(8, 6))
+plt.imshow(convergence_rate, origin='lower', aspect='auto', extent=extent_mc,
+           cmap='RdYlGn', vmin=0, vmax=1)
+plt.colorbar(label="Convergence rate")
+plt.xlabel("v0 [cycles/ap]")
+plt.ylabel("dz [mm]")
+plt.title("FDPR Convergence Rate")
+plt.tight_layout()
+plt.show()
+
+# Residual std heatmap
+plt.figure(figsize=(8, 6))
+finite_vals = rms_residual_std[np.isfinite(rms_residual_std)]
+if len(finite_vals) > 0:
+    vmin, vmax = np.nanpercentile(finite_vals, [5, 95])
+    plt.imshow(rms_residual_std, origin='lower', aspect='auto', extent=extent_mc,
+               cmap='viridis', vmin=vmin, vmax=vmax)
+else:
+    plt.imshow(rms_residual_std, origin='lower', aspect='auto', extent=extent_mc, cmap='viridis')
+plt.colorbar(label="Residual RMS Std [nm]")
+plt.xlabel("v0 [cycles/ap]")
+plt.ylabel("dz [mm]")
+plt.title("MC Residual RMS Variability")
+plt.tight_layout()
+plt.show()
+
+def spot_check_interactive(dz_target, v0_target, npz_file='MC_4x4_new.npz'):
+    """
+    Run spot check on any (dz, v0) point after simulation is done.
+    Regenerates PSFs and runs FDPR fresh.
+    """
+    # Find nearest indices
+    mc = np.load(npz_file)
+    dzs_mc = mc['dzs_mc']
+    v0s_mc = mc['v0s_mc']
+    
+    i = int(np.argmin(np.abs(dzs_mc - dz_target)))
+    j = int(np.argmin(np.abs(v0s_mc - v0_target)))
+    dz_mm = float(dzs_mc[i])
+    v0 = float(v0s_mc[j])
+    
+    print(f"Running spot check at dz={dz_mm:.1f} mm, v0={v0:.2f} cycles/ap")
+    
+    # Regenerate everything for this point
+    phi_def = calculate_defocus_phase(seal_parameters, dz_mm, telescope_pupil, defocus_template)
+    phi_sine_waves = make_sinusoidal_phase_waves(pupil_grid, D_m, float(v0), m_waves)
+    phi_sine_rad = 2 * np.pi * phi_sine_waves
+    
+    wf_focus = Wavefront(telescope_pupil * np.exp(1j * phi_sine_rad), lam_m)
+    wf_focus.total_power = num_photons
+
+    psf_focus_clean = psf_from_wavefront(wf_focus)
+    
+    wf_defoc = Wavefront(telescope_pupil * np.exp(1j * (phi_sine_rad + phi_def)), lam_m)
+    wf_defoc.total_power = num_photons
+    psf_defoc_clean = psf_from_wavefront(wf_defoc)
+    
+
+
+
+    # Add noise
+    psf0 = np.clip(add_read_noise(psf_focus_clean, sigma_e, rng), 0, None)
+    psfd = np.clip(add_read_noise(psf_defoc_clean, sigma_e, rng), 0, None)
+
+    #or dont
+    '''
+    psf0 = psf_focus_clean.copy()
+    psfd =psf_defoc_clean.copy()
+    '''
+    
+    # Run FDPR
+    dz_um = mm_to_um(dz_mm)
+    mp = FocusDiversePhaseRetrieval([psf0, psfd], wavelength_um, 
+                                     [seal_parameters['image_dx']], [dz_um])
+    for _ in range(100):
+        psf_reconstruction = mp.step()
+    
+    # Reconstruct pupil
+    raw_pupil = np.angle(mft_rev(psf_reconstruction, conf))
+    real_pupil = resize(raw_pupil, (256, 256)) * telescope_pupil.shaped
+    
+    # Plot!
+    plot_spot_check_full(dz_mm, v0, phi_sine_rad, phi_def,
+                         psf_focus_clean, psf_defoc_clean,
+                         psf0, psfd, psf_reconstruction, real_pupil,
+                         telescope_pupil, seal_parameters, trial_idx=0)
+    
+
+
+    '''
+    NOTES
+num_photons = 1e6  # total photons per exposure
+sigma_e = 11       # read noise in electrons
+
+# Wavefront creation
+wf_focus = Wavefront(telescope_pupil * np.exp(1j * phi_sine_rad), lam_m)
+wf_focus.total_power = num_photons
+
+wf_defoc = Wavefront(telescope_pupil * np.exp(1j * (phi_sine_rad + phi_def)), lam_m)
+wf_defoc.total_power = num_photons
+
+# PSF in photons/pixel
+def psf_from_wavefront(wf):
+    return np.asarray(prop_p2f(wf).power.shaped)
+    '''
