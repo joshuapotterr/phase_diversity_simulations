@@ -202,8 +202,10 @@ def fig_method_comparison():
     d = np.load(os.path.join(HERE, "OTF_heatmap_data_fixed.npz"))
     Hp = d["H_detection"]    # peak detection
     Ha = d["H_photometry"]   # aperture photometry
-    dzs = np.linspace(5, 250, Hp.shape[0])
-    v0s = np.linspace(0.5, 80, Hp.shape[1])
+    # AXIS BUG FIX: use the actual axis arrays from the file rather than
+    # assuming np.linspace(0.5, 80) (which is off by ~2.5 cyc/ap at low v0).
+    dzs = d["fixed_dz_heatmap"]
+    v0s = d["v0_heatmap"]
 
     # use valid-pixel masks if provided
     mp = d["H_valid_detection"].astype(bool) if "H_valid_detection" in d.files else np.ones_like(Hp, bool)
@@ -317,12 +319,20 @@ def fig_otf_vs_rms():
     dzs_otf, v0s_otf, H = _load_otf_photometry()
     H = H / np.nanmax(H)
 
+    # Canonical FDPR data for the paper: 25x40 production sweep at sigma_r=11,
+    # 5 trials/cell.  Match fig_mc_sin_production so both FDPR figures share
+    # one source.  The 80x150 dense run (sigma_r=5, 1 trial) is plotted
+    # separately by fig_fdpr_dense (below) because it is at a different
+    # noise operating point.
     mc = np.load(os.path.join(HERE, "MC_RMS_heatmap_CORRECTED_dz.npz"))
     dzs_mc = mc["dzs_mc"]
     v0s_mc = mc["v0s_mc"]
     rms = mc["rms_mean_nm"]
+    n_trials_mc = int(mc["N_trials"])
+    sigma_r_mc = float(mc["sigma_e"])
+    fdpr_label = f"{rms.shape[0]}x{rms.shape[1]}, {n_trials_mc} trials/cell, $\\sigma_r={sigma_r_mc:.0f}\\,e^-$"
 
-    # Sample the OTF grid at the FDPR grid points
+    # Sample the OTF grid at the FDPR grid points (no-op when they share axes)
     H_at_mc = np.empty_like(rms)
     for i, dz in enumerate(dzs_mc):
         for j, v in enumerate(v0s_mc):
@@ -345,31 +355,38 @@ def fig_otf_vs_rms():
     r_p_log, _ = pearsonr(np.log10(x_flat[regime]), np.log10(y_flat[regime]))
     r_g, p_g = spearmanr(x_flat[finite_all], y_flat[finite_all])
 
-    fig, axs = plt.subplots(1, 3, figsize=(13.5, 4.0))
+    fig, axs = plt.subplots(1, 3, figsize=(16, 4.6),
+                             gridspec_kw=dict(width_ratios=[1.1, 1.0, 1.2]))
+    plt.subplots_adjust(wspace=0.42, left=0.06, right=0.99, top=0.90, bottom=0.13)
+
     pcm = axs[0].pcolormesh(v0s_otf, dzs_otf, H, shading="auto", cmap="magma", vmin=0, vmax=1)
-    fig.colorbar(pcm, ax=axs[0], label="OTF sideband (norm.)")
-    axs[0].set_title("(a) OTF (80x150)")
+    cb = fig.colorbar(pcm, ax=axs[0], fraction=0.046, pad=0.04)
+    cb.set_label("OTF sideband (norm.)", fontsize=9)
+    axs[0].set_title("(a) OTF sideband (80$\\times$150)", fontsize=11)
     axs[0].set_xlabel(r"$\nu_0$ (cyc/ap)")
     axs[0].set_ylabel(r"$\Delta z$ (mm)")
     axs[0].axhline(100, color="cyan", lw=1.2, ls="--")
     axs[0].axvline(5, color="cyan", lw=1.2, ls="--")
 
     pcm = axs[1].pcolormesh(v0s_mc, dzs_mc, rms, shading="auto", cmap="viridis")
-    fig.colorbar(pcm, ax=axs[1], label="residual RMS (nm)")
-    axs[1].set_title(f"(b) FDPR ({rms.shape[0]}x{rms.shape[1]}, 5 trials)")
+    cb = fig.colorbar(pcm, ax=axs[1], fraction=0.046, pad=0.04)
+    cb.set_label("residual RMS (nm)", fontsize=9)
+    axs[1].set_title(f"(b) FDPR residual ({fdpr_label})", fontsize=11)
     axs[1].set_xlabel(r"$\nu_0$ (cyc/ap)")
+    axs[1].set_ylabel(r"$\Delta z$ (mm)")
     axs[1].axhline(100, color="cyan", lw=1.2, ls="--")
     axs[1].axvline(5, color="cyan", lw=1.2, ls="--")
 
     axs[2].loglog(x_flat[finite_all & ~regime], y_flat[finite_all & ~regime],
-                  "o", ms=3, alpha=0.25, color="0.55",
-                  label=rf"outside regime ($r_s$={r_g:+.2f})")
-    axs[2].loglog(x_flat[regime], y_flat[regime], "o", ms=3, alpha=0.6, color="C3",
-                  label=rf"$\nu_0\geq 5$, $\Delta z\leq 100$ ($r_s$={r_s:+.2f}, $p$={p_s:.1e})")
-    axs[2].set_xlabel("OTF sideband (norm.)")
+                  "o", ms=4, alpha=0.30, color="0.55",
+                  label=rf"outside regime: $r_s={r_g:+.2f}$")
+    axs[2].loglog(x_flat[regime], y_flat[regime], "o", ms=4, alpha=0.70, color="C3",
+                  label=rf"$\nu_0\geq 5$, $\Delta z\leq 100$ mm: $r_s={r_s:+.2f}$, $p={p_s:.1e}$")
+    axs[2].set_xlabel("OTF sideband (normalized)")
     axs[2].set_ylabel("FDPR residual RMS (nm)")
-    axs[2].set_title(r"(c) regime-conditioned correlation")
-    axs[2].legend(fontsize=8, loc="lower left")
+    axs[2].set_title("(c) regime-conditioned correlation", fontsize=11)
+    axs[2].grid(True, which="both", alpha=0.25, lw=0.4)
+    axs[2].legend(fontsize=9, loc="lower left", framealpha=0.92)
 
     print(f"  joint OTF/FDPR (global):   n={finite_all.sum():4d}  Spearman r={r_g:+.4f}  p={p_g:.3e}")
     print(f"  joint OTF/FDPR (regime):   n={regime.sum():4d}  Spearman r={r_s:+.4f}  p={p_s:.3e}  "

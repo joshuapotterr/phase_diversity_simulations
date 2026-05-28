@@ -237,15 +237,20 @@ def main():
         aberration="sinusoid",
         A_waves=A_WAVES,
         nu0_cyc_per_aperture=NU0,
-        N_gamma_total=N_GAMMA_TOTAL,
+        N_gamma_total_relative=N_GAMMA_TOTAL,
         sigma_r_e=SIGMA_R,
         n_trials=N_TRIALS,
         n_iterations=N_ITERATIONS,
         dz_grid_mm=DZ_GRID.tolist(),
         N_sweep=[2, 3, 4, 5, 7],
-        notes=("Total photon budget is fixed across N; per-frame photons "
-               "= N_gamma_total/N.  Asymmetric (N=2) included to test "
-               "whether the symmetric pair is actually optimal at N=3."),
+        notes=("'N_gamma_total' is a RELATIVE SIGNAL SCALE, not a literal "
+               "photon count.  The script scales raw HCIPy PSF intensity by "
+               "n_per_frame/(N_gamma_total/3) and adds Gaussian read noise; "
+               "this reproduces the divided-photon-budget SNR penalty across "
+               "N at fixed total exposure but the absolute n_per_frame number "
+               "is dimensionless (ratio to the N=3 baseline).  Relative "
+               "rankings of (N, dz_list) configurations are correct.  See "
+               "the code-audit memo for the explanation."),
     )
     with open(os.path.join(ROOT, "config.json"), "w") as fh:
         json.dump(config, fh, indent=2)
@@ -304,7 +309,8 @@ def main():
             ))
             elapsed = (time.time() - t0) / 60
             log(f"  N={N}  {label:32s}  RMS = {mean:6.1f} +/- {std:5.1f} nm   "
-                f"conv={conv:.2f}   elapsed={elapsed:.1f} min   id={cfg_id}")
+                f"conv={conv:.2f}   sig_scale={n_per_frame/(N_GAMMA_TOTAL/3.0):.3f}   "
+                f"elapsed={elapsed:.1f} min   id={cfg_id}")
             # Checkpoint after every config so a crash never loses more than
             # one configuration's worth of work.
             np.savez(os.path.join(ROOT, "sweep_results.npz"),
@@ -323,9 +329,11 @@ def main():
     log("\n=== best per N (run_id=%s) ===" % RUN_ID)
     for N in sorted(by_N):
         r = by_N[N]
+        sig_scale = r['n_per_frame'] / (N_GAMMA_TOTAL / 3.0)
         log(f"  N={N}: {r['label']:30s}  dz={r['dz_list']}  "
             f"RMS={r['rms_mean_nm']:.1f}+/-{r['rms_std_nm']:.1f} nm   "
-            f"per-frame photons={r['n_per_frame']:.1e}   id={r['config_id']}")
+            f"signal scale per frame = {sig_scale:.3f} (rel. to N=3 baseline)   "
+            f"id={r['config_id']}")
 
     np.savez(os.path.join(ROOT, "best_per_N.npz"),
              run_id=RUN_ID,
