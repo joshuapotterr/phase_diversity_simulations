@@ -354,6 +354,8 @@ def fig_otf_vs_rms():
     r_s, p_s = spearmanr(x_flat[regime], y_flat[regime])
     r_p_log, _ = pearsonr(np.log10(x_flat[regime]), np.log10(y_flat[regime]))
     r_g, p_g = spearmanr(x_flat[finite_all], y_flat[finite_all])
+    grey = finite_all & ~regime
+    r_grey, p_grey = spearmanr(x_flat[grey], y_flat[grey])
 
     fig, axs = plt.subplots(1, 3, figsize=(16, 4.6),
                              gridspec_kw=dict(width_ratios=[1.1, 1.0, 1.2]))
@@ -377,9 +379,9 @@ def fig_otf_vs_rms():
     axs[1].axhline(100, color="cyan", lw=1.2, ls="--")
     axs[1].axvline(5, color="cyan", lw=1.2, ls="--")
 
-    axs[2].loglog(x_flat[finite_all & ~regime], y_flat[finite_all & ~regime],
+    axs[2].loglog(x_flat[grey], y_flat[grey],
                   "o", ms=4, alpha=0.30, color="0.55",
-                  label=rf"outside regime: $r_s={r_g:+.2f}$")
+                  label=rf"outside regime: $r_s={r_grey:+.2f}$, $p={p_grey:.1e}$")
     axs[2].loglog(x_flat[regime], y_flat[regime], "o", ms=4, alpha=0.70, color="C3",
                   label=rf"$\nu_0\geq 5$, $\Delta z\leq 100$ mm: $r_s={r_s:+.2f}$, $p={p_s:.1e}$")
     axs[2].set_xlabel("OTF sideband (normalized)")
@@ -391,6 +393,7 @@ def fig_otf_vs_rms():
     print(f"  joint OTF/FDPR (global):   n={finite_all.sum():4d}  Spearman r={r_g:+.4f}  p={p_g:.3e}")
     print(f"  joint OTF/FDPR (regime):   n={regime.sum():4d}  Spearman r={r_s:+.4f}  p={p_s:.3e}  "
           f"log-log Pearson r={r_p_log:+.4f}")
+    print(f"  joint OTF/FDPR (outside):  n={grey.sum():4d}  Spearman r={r_grey:+.4f}  p={p_grey:.3e}")
 
     return _save(fig, "otf_vs_rms_regen.png")
 
